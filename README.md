@@ -124,16 +124,18 @@ O notebook é organizado nas seguintes seções:
 
 ### Consultas
 
+As consultas são agrupadas em dados estruturados (C1 a C4) e dados semiestruturados (C5 a C8).
+
 | Consulta | O que mede | PostgreSQL | MongoDB |
 |---|---|---|---|
 | C1 | Itens por categoria e status | Sem índice; B-tree composto | Sem índice; índice composto |
-| C2 | Itens por faixa de preço | Sem índice; B-tree de expressão | Sem índice; índice simples |
-| C4 | Existência de um atributo variável | Sem índice; GIN | Sem índice; wildcard |
-| C5 | Itens de um restaurante (junção) | Sem índice; B-tree composto | Sem índice; índice composto |
-| C6 | Filtro em array de objetos aninhados | Sem índice; GIN | Sem índice; multikey |
-| C7 | Upsert condicional | Chave primária | Chave primária (`_id`) |
-| C8 | Adição de tag (atualização parcial) | B-tree de expressão e GIN | Multikey |
-| C9 | Exclusão lógica | Chave primária | Chave primária (`_id`) |
+| C2 | Upsert condicional | Chave primária | Chave primária (`_id`) |
+| C3 | Exclusão lógica | Chave primária | Chave primária (`_id`) |
+| C4 | Itens de um restaurante (junção) | Sem índice; B-tree composto | Sem índice; índice composto |
+| C5 | Itens por faixa de preço | Sem índice; B-tree de expressão | Sem índice; índice simples |
+| C6 | Existência de um atributo variável | Sem índice; GIN | Sem índice; wildcard |
+| C7 | Filtro em array de objetos aninhados | Sem índice; GIN | Sem índice; multikey |
+| C8 | Adição de tag (atualização parcial) | Sem índice; B-tree e GIN | Sem índice; multikey |
 
 ## Limitações
 
