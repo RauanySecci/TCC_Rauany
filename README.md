@@ -157,10 +157,3 @@ As consultas são agrupadas em dados estruturados (C1 a C4) e dados semiestrutur
 | C6 | Existência de um atributo variável | Sem índice; GIN | Sem índice; wildcard |
 | C7 | Filtro em array de objetos aninhados | Sem índice; GIN | Sem índice; multikey |
 | C8 | Adição de tag (atualização parcial) | Chave primária | Chave primária (`_id`) |
-
-C2, C3 e C8 são escritas pontuais por chave. Além de medidas normalmente (e em lote), elas são medidas pelo id **com** o índice (chave primária ou `_id`) e **sem usar** o índice (varredura forçada: no PostgreSQL, varreduras por índice desligadas na sessão; no MongoDB, `hint({$natural: 1})`), para comparar com as consultas de leitura. Por isso o upsert da C2 no PostgreSQL não usa `INSERT ... ON CONFLICT`: ele sempre usa a chave primária para detectar o conflito e não permite medir sem o índice.
-
-## Limitações
-
-- Os dados são sintéticos e o ambiente é local, com um único nó, sem concorrência de clientes.
-- O experimento é um recorte do problema.
