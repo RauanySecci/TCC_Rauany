@@ -150,8 +150,8 @@ def itens_legenda(forcado=False, so_bancos=False):
     if so_bancos:
         return h
     h += [Line2D([], [], color=TINTA_2, ls="-", marker="o", markerfacecolor=TINTA_2, lw=2, ms=6, label="com índice"),
-          Line2D([], [], color=TINTA_2, ls=(0, (5, 3)), marker="o", markerfacecolor=SUPERFICIE, lw=2, ms=6,
-                 label="sem índice")]
+          Line2D([], [], color=TINTA_2, ls=(0, (2.5, 1.5)), marker="o", markerfacecolor=SUPERFICIE, lw=2, ms=6,
+                 label="sem índice")]  # traço mais curto que o da linha, para caber no símbolo da legenda
     if forcado:
         h.append(Line2D([], [], color=TINTA_2, ls=(0, (1, 2)), marker="s", markerfacecolor=TINTA_2, lw=2, ms=5,
                         label="índice forçado"))
@@ -272,7 +272,7 @@ def grafico_escala(vol, saida, estatistica="mediana"):
         ax.set_xlabel("itens no banco", fontsize=9, color=TINTA_2)
         ax.set_ylabel("tempo (ms)", fontsize=9, color=TINTA_2)
         ax.legend(handles=itens_legenda(forcado=tem_forcado) + (itens_variacao() if media else []), loc="upper left",
-                  frameon=False, fontsize=8.5, labelcolor=TINTA, ncol=2)
+                  frameon=False, fontsize=8.5, labelcolor=TINTA, ncol=2, handlelength=3.2)
         fig.tight_layout(rect=(0, 0, 1, 0.93))
         salvar(fig, saida / f"grafico1_escala_{c}.png")
 
