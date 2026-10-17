@@ -15,7 +15,7 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 1g
+          memory: 3g
 
   mongo:
     image: mongo:8.0.29
@@ -29,7 +29,7 @@ services:
       resources:
         limits:
           cpus: "2"
-          memory: 1g
+          memory: 3g
 
 volumes:
   postgres_data:
