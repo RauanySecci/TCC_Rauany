@@ -23,22 +23,60 @@ Marque `[x]` quando o item entrar no texto.
 
 C2 e C8 (escritas) foram medidas sem índice secundário.
 
-## 2. Subseção "Ameaças à validade" (incluir)
+## 2. Limitações do experimento / Ameaças à validade (incluir; texto consolidado em 17/10)
 
-- [ ] **Local do dado (C6 e C8).** No PostgreSQL, `promocao` e `tags` ficam dentro do JSONB
-  `atributos_variaveis`; no MongoDB, são campos de topo do documento. Os dados são os mesmos
-  (gerados juntos em um único dicionário `atributos`, gravado inteiro como JSONB no PostgreSQL
-  e espalhado no documento com `doc.update(...)` no MongoDB). A diferença de posição é
-  consequência do modelo, que é o objeto de estudo, e não viés do método.
-- [ ] **Índices de natureza diferente no C6.** O GIN cobre apenas a coluna `atributos_variaveis`;
-  o wildcard `$**` indexa todos os campos do documento. A comparação de tamanho em disco deve
-  ser lida com essa ressalva.
-- [ ] **Custo da atualização no C8.** `jsonb_set` regrava o JSONB inteiro (nova versão da linha,
-  possível TOAST); `$addToSet` altera um array de topo. É o custo real de cada modelo, não erro.
-- [ ] **Valores nulos e campos ausentes.** `status <> 'DELETED'` (PostgreSQL) e `$ne` (MongoDB)
-  tratam `NULL` e campo ausente de forma diferente.
-- [ ] **Escopo do C6.** `tags` e `promocao` são gerados sempre juntos, então o C6 filtra o mesmo
-  conjunto de itens que têm tags. Isso explica a seletividade da consulta.
+Lista única, pronta para virar subseção do TCC. Reúne o que antes estava espalhado nas seções 8 a 12, 15, 17.2, 17.9 e 17.11. Tom: dizer o que
+o resultado **não** permite concluir, sem pedir desculpa. (Se preferir um nome mais simples para a subseção: "Limitações do experimento".)
+
+**Dados e ambiente**
+- [ ] **Dados sintéticos**, gerados com semente fixa (`random.seed(42)`, `Faker.seed(42)`), com distribuições escolhidas por mim (categorias 35/20/10/35%,
+  status 85/10/5%, tamanhos de restaurante, atributos). Podem não representar um catálogo real.
+- [ ] **Cliente único e sequencial**, sem concorrência, em **um único nó**, numa máquina de uso pessoal (registrar CPU, RAM e disco do PC), com PostgreSQL
+  14.18 e MongoDB 8.0.29 em contêineres de 2 CPUs e 3 GB cada. Os resultados podem não valer para outro hardware ou para carga com vários usuários.
+- [ ] **Uma rodada completa** (10 repetições por medição; carga inicial repetida 5 vezes). Os experimentos (volume, seletividade, lote, carga) rodam em
+  sequência, cada um recriando os bancos do zero.
+- [ ] **Memória de cache não equivalente:** o PostgreSQL ficou com `shared_buffers` padrão (128 MB), sem ajuste; o MongoDB ajusta o cache do WiredTiger
+  sozinho (~1 GiB com 3 GiB). Não houve ajuste equivalente nos dois.
+- [ ] **Durabilidade equivalente, mas não idêntica:** PostgreSQL com `synchronous_commit=on` e MongoDB com `w=1, journal=True`. Declarar para a comparação de
+  escrita não refletir garantias diferentes.
+
+**Método de medição**
+- [ ] **Tempo de ponta a ponta** (cronômetro externo): execução no banco, transferência e conversão para DataFrame, com ferramentas diferentes em cada
+  banco (`pd.read_sql` e `pd.DataFrame(list(cursor))`). Pesa nas consultas que devolvem muitas linhas.
+- [ ] **Cache limpo antes de cada repetição** (contêineres reiniciados e cache do sistema operacional descartado, sem aquecimento): é o **pior caso** (primeira
+  leitura depois de reiniciar). Em produção os tempos tendem a ser menores. O cache de planos do MongoDB também é perdido a cada reinício, e o PostgreSQL
+  grava páginas inteiras no log na primeira escrita (`full_page_writes`), o que pode penalizá-lo nas escritas.
+- [ ] **Variação entre repetições:** o MongoDB com índice nas escritas por id alterna entre dois patamares de tempo (~5–10 ms e ~13–20 ms). Em 5 mil itens
+  a variação é do tamanho da diferença entre os cenários, então o efeito do índice **não é conclusivo** nesse volume. As 10 repetições foram um compromisso
+  com o tempo da rodada (a rodada completa leva horas).
+- [ ] **Carga inicial:** poucas amostras do monitor de CPU e memória nos volumes pequenos (1 a 3 em 5 mil itens); em 1 milhão a variação entre rodadas é
+  pequena (~4% no PostgreSQL e ~14% no MongoDB no tempo de envio).
+- [ ] **Chave estrangeira só no PostgreSQL:** a tabela `itens` do PostgreSQL tem **chave estrangeira** para `restaurantes` (verificada a cada linha), e o MongoDB não
+  tem. Portanto o tempo de carga inclui esse custo de integridade referencial, que é parte do modelo relacional. (A assimetria de confirmação foi eliminada em 19/10:
+  os dois bancos confirmam a cada lote de 10 mil, ver 17.16.)
+
+**Consultas e índices**
+- [ ] **Local do dado (C6 e C8):** no PostgreSQL, `promocao` (C6) e `tags` (C8) ficam dentro do JSONB `atributos_variaveis`; no MongoDB, são
+  campos de topo do documento. Os dados são os mesmos (gerados juntos); a diferença de posição é consequência do modelo, que é o objeto de estudo, e não
+  viés do método.
+- [ ] **Cada consulta foi testada com um único tipo de índice por banco** (B-tree em C1, C4 e C5; GIN e wildcard na C6; GIN e multikey na C7; só a chave primária
+  em C2, C3 e C8). O trabalho compara **com × sem índice**, e não um tipo de índice contra outro.
+- [ ] **Índices de natureza diferente na C6:** o GIN cobre só a coluna `atributos_variaveis`; o wildcard `$**` indexa todos os campos do documento (também os que a
+  consulta não usa). A comparação do espaço em disco deve ser lida com essa ressalva (ex.: 16 MB do wildcard contra 1,5 MB do GIN em 100 mil itens).
+- [ ] **Seletividade:** C1 (~33%), C5 (~42%) e C7 (≥ 9,8%) devolvem boa parte da tabela, então nelas o índice tem pouco o que ajudar; só a C4 (junção), a C6 (~0,15%, no volume)
+  e as escritas por id são seletivas. Na **C7**, o experimento de volume (e o gráfico 2) usa "Bacon extra" (~22% dos itens, pouco seletivo); o caso seletivo
+  ("Picles extra", ~0,1% dos itens) só existe no experimento de **seletividade** (gráfico 3, volume Grande). Declarar que o gráfico 2 não mostra o caso seletivo da C7.
+- [ ] **Escopo da C6:** filtra um único valor (`promocao.descontoPercentual = 80`, ~0,15% dos itens, 1.452 em 1 milhão); `promocao` é opcional e aparece em pizza, sobremesa e lanche (~29% dos itens), e descontos altos são raros (2% das promoções).
+- [ ] **O planejador do PostgreSQL decide sozinho** se usa o índice: em 1 milhão ele ignorou o índice na C1 e na C5 (Seq Scan), e o índice **forçado** foi medido só
+  nesses casos. O MongoDB usou o índice em todos os cenários (sem `hint`).
+- [ ] **Escritas por id "sem índice":** o índice do id não pode ser removido nos dois bancos, então "sem índice" é uma varredura forçada (PostgreSQL com varreduras
+  por índice desligadas na sessão; MongoDB com `hint({$natural: 1})`).
+- [ ] **C2 sem `ON CONFLICT`:** o upsert do PostgreSQL não usa o comando mais eficiente (`ON CONFLICT` sempre usa a chave primária e não permite medir sem o índice).
+  O custo medido foi ~25 a 40% na escrita pontual e até ~1,9× por item nos lotes grandes, então os tempos absolutos da C2 no PostgreSQL são pessimistas; a
+  análise do efeito do índice não é afetada (seção 17.9).
+- [ ] **Custo da atualização na C8:** `jsonb_set` regrava o JSONB inteiro (nova versão da linha, possível TOAST) e `$addToSet` altera um array de topo. É o custo real
+  de cada modelo, não um erro de método.
+- [ ] **Valores nulos e campos ausentes:** `status <> 'DELETED'` (PostgreSQL) e `$ne` (MongoDB) tratam `NULL` e campo ausente de forma diferente.
 
 ## 3. Durabilidade das escritas (incluir)
 
@@ -51,6 +89,7 @@ C2 e C8 (escritas) foram medidas sem índice secundário.
 
 - [ ] Os dois bancos devolvem só `nome`, `categoria` e `promocao`. No PostgreSQL a consulta usa
   `atributos_variaveis->'promocao' AS promocao`, para o volume transferido ser equivalente.
+  (Ver a seção 17.11.)
 
 ## 5. Medição de espaço em disco no MongoDB (incluir)
 
@@ -68,7 +107,7 @@ C2 e C8 (escritas) foram medidas sem índice secundário.
   feita **antes** do cronômetro e do monitor; só o envio ao banco é medido. Antes, a montagem de 1
   milhão de dicionários em Python entrava no tempo e fazia o CPU do MongoDB parecer ~1%.
 - [ ] Declarar que os dois bancos usam o mesmo tamanho de lote (`TAMANHO_LOTE = 10_000`):
-  PostgreSQL com `psycopg2.extras.execute_values` (`page_size=10_000`, uma única transação) e
+  PostgreSQL com `psycopg2.extras.execute_values` (`page_size=10_000`, com `commit` a cada lote) e
   MongoDB com `insert_many` em fatias de 10 mil documentos. A versão anterior do PostgreSQL usava
   `executemany` (um INSERT por linha, ~395 s) e não era comparável ao `insert_many` do MongoDB.
 - [ ] Declarar que o CPU e a memória vêm de `docker stats` dos containers `catalogo-postgres-db` e
@@ -108,11 +147,11 @@ C2 e C8 (escritas) foram medidas sem índice secundário.
 - [ ] Revisar frases que afirmem equivalência total entre C6 e C8; trocar por equivalência de
   resultado e dados, com as diferenças de modelo declaradas na seção 2.
 - [ ] Atualizar todos os números de C6, C8, C2, lote e volume depois de reexecutar o notebook
-  (as medições anteriores foram feitas com projeção diferente no C6 e sem `journal=True`).
+  (as medições anteriores foram feitas sem `journal=True`).
 
 ---
 
-# Ajustes de método feitos depois (script `benchmark.py` e notebook)
+# Ajustes de método feitos depois (script `analises.py` e notebook)
 
 As seções abaixo vieram da revisão do método de medição da Seção 7 (Escalabilidade). Os números
 citados são das rodadas **preliminares** e servem só como tendência: todos os valores do texto
@@ -134,19 +173,14 @@ devem vir da rodada final.
   por consulta, então a comparação no Pequeno reflete sobretudo esse custo.
 - [ ] Se o `sudo` não estiver disponível e for usado `--sem-so`, declarar que só o cache dos bancos
   foi limpo e o do sistema operacional continuou quente.
-- [ ] **Escritas (C2, C3, C8) e lote não limpam o cache.** Justificar: o custo dominante é o
-  commit no log de transações (WAL no PostgreSQL, journal no MongoDB), e cada escrita toca poucas
-  páginas. Ressalvas a registrar: (a) uma escrita por chave lê a página do item antes de modificá-la,
-  então com cache frio ela seria um pouco mais lenta; (b) reiniciar o PostgreSQL a cada repetição
-  faria a primeira escrita em cada página gravar a página inteira no log (`full_page_writes`), o que o
-  penalizaria artificialmente frente ao MongoDB; (c) o tempo cresceria muito. **Pendente:** perguntar
-  à orientadora se ela espera a limpeza também nas escritas.
+- [ ] **Escritas (C2, C3, C8) e lote também são medidas com o cache limpo antes de cada repetição** (as mesmas condições das
+  leituras; o estado original é restaurado antes de limpar o cache). Ressalva a registrar: reiniciar o PostgreSQL a cada repetição faz a primeira
+  escrita em cada página gravar a página inteira no log (`full_page_writes`), o que pode penalizá-lo frente ao MongoDB.
 - [ ] Declarar o número de repetições: **10 em todas as medições** (leituras e escritas; decidido na seção 17;
   a carga inicial é repetida 5 vezes). Não há execução de aquecimento descartada. Os gráficos usam a **média**
   (com mínimo, máximo e quartis nos gráficos 1 e 4); a mediana ficou como apoio na discussão, por ser menos
   sensível a picos isolados. Detalhes na seção 17.7.
-- [ ] Descrever o monitoramento (opcional): `monitorar.py` registra CPU e memória dos containers e
-  do PC a cada 2 s; para os resultados finais, rodar **sem** o monitor (ele consome CPU).
+- [ ] Rodar os resultados finais sem outros programas pesados na máquina (consomem CPU e atrapalham os tempos). O `monitorar.py` foi removido em 20/10.
 
 ## 9. O que o tempo medido inclui (incluir)
 
@@ -173,9 +207,9 @@ devem vir da rodada final.
   ajustado de forma equivalente (um teste com `shared_buffers` maior, ~1 GB, é opcional).
 - [ ] **Análise de sensibilidade à memória (opcional, mas rendeu um achado).** Com 1 GiB por
   container (cache do MongoDB de 256 MiB, menor que os ~700 MB de dados), no volume Grande e com
-  cache quente: C5 com índice no MongoDB 22.716 ms contra 2.916 ms sem índice; C6 com wildcard
-  7.827 ms contra 1.912 ms; C1 com índice 1.647 ms contra 1.427 ms. Com 3 GiB (cache de 1 GiB) o
-  problema desapareceu: C5 2.769 ms, C6 1.680 ms, C1 1.082 ms (índice equivalente à varredura). Medido
+  cache quente: C5 com índice no MongoDB 22.716 ms contra 2.916 ms sem índice; C1 com índice
+  1.647 ms contra 1.427 ms. Com 3 GiB (cache de 1 GiB) o problema desapareceu: C5 2.769 ms,
+  C1 1.082 ms (índice equivalente à varredura). Medido
   no C5: com o índice o MongoDB leu ~38 GB para o cache (para buscar ~497 mil documentos um a um) contra
   ~0,5 GB na varredura. Conclusão a escrever: um índice mal aproveitado pode degradar a consulta em
   até 8 vezes quando o cache é pequeno. Os números do 1 GiB precisam ser refeitos se forem citados.
@@ -192,8 +226,6 @@ devem vir da rodada final.
   forçado)"** (`SET enable_seqscan = off`), só nesses casos, para mostrar o custo real do índice. Citar
   no texto que o planejador não foi forçado nos demais cenários. O MongoDB não precisou de `hint`: o
   plano vencedor foi `IXSCAN` em todos os cenários com índice.
-- [ ] O C6 do PostgreSQL (GIN) **mudou de plano entre rodadas** (`Bitmap Heap Scan` em uma,
-  `Seq Scan` em outra): está na fronteira entre usar ou não o índice. Reportar o plano de cada rodada.
 
 ## 12. Preparação do banco depois da carga (incluir)
 
@@ -215,13 +247,12 @@ devem vir da rodada final.
 ## 13. Numeração e ordem das consultas (conferir)
 
 - [ ] A numeração atual é: C1 itens por categoria e status; C2 upsert; C3 soft delete; C4 junção;
-  C5 faixa de preço; C6 existência de atributo; C7 array aninhado; C8 atualização parcial (igual à
+  C5 faixa de preço; C6 valor de atributo aninhado; C7 array aninhado; C8 atualização parcial (igual à
   do README). Conferir se o texto do TCC usa essa mesma numeração (em 03/10 o upsert era C7).
-- [ ] A **ordem de execução** não segue a numeração: C1, C5, C6, C4, C7, C2, C8, C3 (leituras
+- [ ] A **ordem de execução** não segue a numeração: C1, C5, C6, C4, C7, C2, C3, C8 (leituras
   primeiro, escritas por último). Se citar a ordem, dizer isso. Foi herdada da numeração antiga e
   mantida de propósito, para as escritas não alterarem as leituras seguintes.
-- [ ] O arquivo `notebooks/resultados_volume.json` (de 10/10) usa a numeração **antiga**: não usá-lo
-  nos gráficos.
+- [x] O arquivo `notebooks/resultados_volume.json` (de 10/10, numeração antiga das consultas) foi apagado em 20/10.
 
 ## 14. Tendências das rodadas preliminares (para a discussão; confirmar na rodada final)
 
@@ -230,13 +261,13 @@ devem vir da rodada final.
 
 - [ ] A **junção (C4)** é a consulta em que o índice mais pesa. (Preliminar, cache quente: de ~400 a ~770 ms para ~2 ms.)
   **Rodada final, volume Grande, cache limpo:** PG 1250 → 65 ms (~19×) e Mongo 1164 → 110 ms (~11×).
-- [ ] Nas consultas que devolvem boa parte da tabela (C1, C5, C6, C7), o índice **empata ou piora**;
+- [ ] Nas consultas que devolvem boa parte da tabela (C1, C5, C7), o índice **empata ou piora**;
   só o multikey do MongoDB no C7 melhora de forma clara (~30%).
 - [ ] O custo do cache limpo diminui com o volume: no Pequeno é 3 a 25 vezes o tempo com cache
   quente, no Médio 1,2 a 5 vezes, no Grande 1 a 2 vezes nas varreduras. Consultas por índice sofrem
   mais (C4 com índice ficou 32 a 46 vezes mais lenta que a quente).
 - [ ] O ranking entre os bancos muda conforme o cache: em algumas consultas o MongoDB ganha com cache
-  quente e o PostgreSQL passa à frente com o cache limpo (C1 e C6 sem índice).
+  quente e o PostgreSQL passa à frente com o cache limpo (C1 sem índice).
 - [ ] As escritas (C2, C3 e C8) **não variam com o volume**. (Preliminar: ~1 a 3 ms; **rodada final**, com cache limpo: PG ~14–28 ms
   e Mongo ~7–19 ms.)
 - [ ] A variação entre rodadas é de ~10 a 15%: não tirar conclusões de diferenças menores que isso. (Na rodada final, em
@@ -254,8 +285,7 @@ devem vir da rodada final.
 
 - [ ] Resposta da orientadora: (1) usar só o cache limpo nas leituras; (2) reiniciar o banco a cada
   repetição ou limpar só o cache do banco; (3) cache nas escritas; (4) número de repetições (decidido: 10, ver seção 17).
-- [ ] Apagar `notebooks/analises.ipynb.bak` (cópia do notebook antes das alterações) depois de
-  conferir o notebook novo.
+- [x] `notebooks/analises.ipynb.bak` (cópia do notebook antes das alterações) foi apagado em 20/10.
 - [ ] As consultas avulsas da Seção 6 do notebook ainda usam `repeats=10`; só mudar se os números
   delas forem citados no texto.
 - [ ] A célula 4.1 do notebook ainda cita o parâmetro `nome_container` em `medir_tempo`, que não
@@ -270,7 +300,7 @@ repetições em ms, como nos gráficos; entre parênteses, a faixa mínimo–má
 
 ### 17.1 Rodada e pastas
 
-- [ ] Comando: `python benchmark.py --repeats 10 --saida resultados_final_10_repeticoes` (180 min; volume,
+- [ ] Comando: `python analises.py --repeats 10 --saida resultados_final_10_repeticoes` (180 min; volume,
   seletividade e lote, este último e a seletividade no volume Grande). Gráficos:
   `python graficos.py --entrada resultados_final_10_repeticoes` → `resultados_final_10_repeticoes/graficos/`.
 - [ ] Declarar no texto: **10 repetições** por medição, cache do banco e do sistema operacional limpos antes de
@@ -364,8 +394,8 @@ removido). **O índice sempre ajuda e nunca atrapalha; não houve índice força
 - [ ] **Sem índice:** PostgreSQL melhor a partir de 100 mil (C2: 107,7 vs 149,1 ms em 100 mil e 1200,5 vs 1557,5 ms em 1
   milhão; C3: 93,8 vs 126,6 ms e 719,6 vs 1194,8 ms; C8: 89,0 vs 122,4 ms e 721,6 vs 1142,6 ms). Em 5 mil as faixas se
   sobrepõem.
-- [ ] **A C2 do PostgreSQL usa upsert sem `ON CONFLICT`** (UPDATE condicionado + INSERT se não existe, `SQL_UPSERT_C2_PG`
-  no benchmark.py), **nos dois cenários e em todo o trabalho**, porque o `ON CONFLICT` sempre usa a chave primária e não
+- [ ] **A C2 do PostgreSQL usa upsert sem `ON CONFLICT`** (UPDATE condicionado + INSERT se não existe, `upsert_c2_pg`
+  no analises.py), **nos dois cenários e em todo o trabalho**, porque o `ON CONFLICT` sempre usa a chave primária e não
   dá para desligá-la. Justificativa, custo e texto sugerido: seção 17.9. Os tempos da C2 por id no PG ficam acima dos que
   o `ON CONFLICT` daria; para citar o custo de uma escrita pontual, preferir a C3 ou a C8 por id.
 
@@ -395,9 +425,8 @@ removido). **O índice sempre ajuda e nunca atrapalha; não houve índice força
   índice forçado.
 - [x] **Gráfico de lote** (`grafico_lote`, hoje gráfico 4): os rótulos "50.000" e "100.000" do eixo x se sobrepunham; o segundo agora
   desce uma linha (vale para tiques com razão menor que 3 entre si).
-- [ ] O `dados_graficos.csv` ainda guarda as linhas do índice forçado da seletividade; remover se não for citar.
-- [ ] Ainda não ajustado: rótulos "2,0×" e "2,1×" (C4) colados no gráfico 2, e C6 do Mongo sem barra visível
-  (ganho ~1,0×).
+- [x] A seletividade não mede mais o índice forçado (retirado em 20/10: o gráfico 3 não o usava); o `dados_graficos.csv` da rodada nova não terá essas linhas. O índice forçado continua só no volume (gráficos 1 e 2).
+- [ ] Ainda não ajustado: rótulos "2,0×" e "2,1×" (C4) colados no gráfico 2.
 - [x] **Gráfico 4** (`grafico_escritas`): a chamada foi removida do `main`; a função continua no arquivo, sem uso.
   O `dados_graficos.csv` deixou de ter as linhas `4_escritas_volume`. O trecho da C2 por id no PostgreSQL (17.4)
   continua valendo para quem citar a escrita pontual.
@@ -438,11 +467,11 @@ removido). **O índice sempre ajuda e nunca atrapalha; não houve índice força
 - [ ] Contagem usada para escolher a barra: em 1160 medições individuais, ~70% dos valores caem dentro de
   média ± 1 desvio padrão e ~97% dentro de ± 2 desvios; a barra de quartis e o mínimo/máximo mostram a
   distribuição sem essa ambiguidade.
-- [x] **Gráfico 2 agora usa a média** (decisão: volume Médio, 100 mil itens): `grafico2_ganho_indice.png`, ganho =
+- [x] **Gráfico 2 agora usa a média** (decisão de 17/10: volume Médio, 100 mil itens; **desde 20/10 o padrão é o Grande**, como a seletividade e o lote; `--ref Médio` volta ao Médio): `grafico2_ganho_indice.png`, ganho =
   média sem índice ÷ média com índice. As versões com mediana e as versões do volume Grande foram removidas.
-  Valores (PG / Mongo): C1 0,4×/1,1×; C2 5,3×/11×; C3 3,9×/8,7×; C4 2,0×/2,2×; C5 0,9×/0,8×; C6 0,5×/1,0×;
+  Valores (PG / Mongo): C1 0,4×/1,1×; C2 5,3×/11×; C3 3,9×/8,7×; C4 2,0×/2,2×; C5 0,9×/0,8×;
   C7 0,7×/1,4×; C8 3,7×/11×. Para citar o caso do volume Grande (1 milhão), os ganhos com a média são: C2 48×/109×,
-  C3 29×/85×, C4 20×/11×, C8 29×/101×, C1 1,0× (índice forçado 0,5×), C5 0,9×, C6 0,6×/0,9×, C7 0,7×/1,3×.
+  C3 29×/85×, C4 20×/11×, C8 29×/101×, C1 1,0× (índice forçado 0,5×), C5 0,9×, C7 0,7×/1,3×. (Os valores da C6 serão os da rodada nova, ver 17.11.)
   CSV: linhas `2_ganho_indice`, coluna x = "Médio".
 - [x] **Gráfico 3 (seletividade) agora só com média** (`grafico3_seletividade_<C>.png`, C1, C4, C5 e C7; sem barras de
   variação). As versões com mediana e com variação (traço Q1–Q3 e fio mínimo–máximo, descartada porque a variação,
@@ -458,14 +487,14 @@ removido). **O índice sempre ajuda e nunca atrapalha; não houve índice força
   Antes era 1, 2, 3, 5 (lote), 6 (espaço), 7, 8, 9, 10 (as seções 1 a 16 e o gráfico 4 antigo, removido, ainda
   podem citar a numeração antiga).
 
-### 17.8 Carga inicial repetida 5 vezes (agora parte do `benchmark.py`)
+### 17.8 Carga inicial repetida 5 vezes (agora parte do `analises.py`)
 
 - [x] **Verificação feita:** a carga dos 3 volumes foi repetida 5 vezes (recriando os bancos a cada rodada) para ver se
   ela varia muito. Os dados estão em `resultados_final_10_repeticoes/resultados_carga_rodadas.json` ({volume: [5
   rodadas]}); a pasta temporária `resultados_carga_repetida/` e os scripts `repetir_carga.py` e
   `graficos_carga_repetida.py` foram removidos.
-- [x] **`benchmark.py`:** a carga de cada volume passa a ser repetida 5 vezes por padrão (`--repeats-carga`, em
-  `volume` e em `carga`): `carregar_varias_vezes` recria o banco do zero a cada rodada, e a última carga fica no banco
+- [x] **`analises.py`:** a carga de cada volume passa a ser repetida 5 vezes por padrão (`--repeats-carga`, no
+  `volume`): `carregar_varias_vezes` recria o banco do zero a cada rodada, e a última carga fica no banco
   para as consultas. `resultados_carga.json` guarda a última rodada e `resultados_carga_rodadas.json` guarda todas.
   Custo: 4 cargas extras por volume (a carga de 1 milhão leva ~1 a 2 min).
 - [x] **`graficos.py`:** com `resultados_carga_rodadas.json`, os **gráficos 6 (tempo), 7 (CPU) e 8 (memória)** mostram a média
@@ -497,14 +526,14 @@ removido). **O índice sempre ajuda e nunca atrapalha; não houve índice força
 **Decisão (17/10): opção B.** A C2 do **PostgreSQL** passa a usar, em **todos** os experimentos (consulta, volume, análise de
 índice e lote), um upsert **sem `ON CONFLICT`**: `UPDATE` condicionado (`WHERE id = ... AND hash <> ... AND versao >= ...`)
 seguido de `INSERT ... WHERE NOT EXISTS`, escritos numa instrução só (CTE). O MongoDB não muda (`find_one` + escrita).
-Código: `SQL_UPSERT_C2_PG` (individual) e `SQL_UPSERT_LOTE_C2_PG` (lote) no `benchmark.py`, e as células da C2, da Seção 7
+Código: `upsert_c2_pg` (individual) e `SQL_UPSERT_LOTE_C2_PG` (lote) no `analises.py`, e as células da C2, da Seção 7
 e do lote no notebook. Testado no banco (inserção, atualização, mesmo hash, versão antiga e C2 individual).
 
 **Quais resultados já estavam assim e quais foram refeitos.**
 - [x] `C2_id` (gráficos 1 e 2): **já** usava o comando sem `ON CONFLICT` na rodada de 10 repetições. Válido.
 - [x] **Lote da C2** (gráfico 4, inserção e atualização): **refeito** em 17/10 com o comando novo
-  (`python benchmark.py lote --consultas C2 ...`); C8 e C3 do lote não foram refeitos (não dependem da C2).
-- [x] **C2 normal por volume:** deixou de ser medida. No `benchmark.py` (e na célula do volume do notebook), C2, C3 e C8
+  (`python analises.py lote --consultas C2 ...`); C3 e C8 do lote não foram refeitos (não dependem da C2).
+- [x] **C2 normal por volume:** deixou de ser medida. No `analises.py` (e na célula do volume do notebook), C2, C3 e C8
   "normais" só existem para o **lote** (`ESCRITAS_SO_NO_LOTE`); no experimento de **volume** a escrita pontual por chave é
   medida só em `C2_id`, `C3_id` e `C8_id` (com e sem índice), porque o cenário "com índice" dessas é o mesmo comando das
   normais. A chave `C2` (que tinha o comando antigo) foi **removida** do `resultados_volume.json`; as chaves `C3` e `C8`
@@ -550,7 +579,7 @@ e do lote no notebook. Testado no banco (inserção, atualização, mesmo hash, 
 | C8 | `UPDATE ... WHERE id = ...` com `jsonb_set` (PG) / `update_many` por `_id` com `$addToSet` (Mongo) | Não |
 
 **Notebook:** as células da C2 (Seção 6), da Seção 7 (`C2_id`) e do lote usam o comando sem `ON CONFLICT`, e as descrições
-explicam o motivo. **`benchmark.py`:** `--consultas` agora vale também para o lote, e com `--consultas` o volume não repete
+explicam o motivo. **`analises.py`:** `--consultas` agora vale também para o lote, e com `--consultas` o volume não repete
 a carga nem sobrescreve as cargas medidas.
 
 ### 17.10 Gráficos limpos: só título, gráfico e legenda (17/10) — **a explicação passa para a legenda da figura no TCC**
@@ -595,3 +624,238 @@ mínimo a máximo"; nos gráficos 6 a 8, "fio: mínimo a máximo entre as rodada
   verificados: em 1 milhão o PostgreSQL ignorou o índice na C1 e na C5 (Seq Scan) e no gráfico 3 (C1, faixas de preço); as
   consultas por id usam Index Scan (PG) e EXPRESS_IXSCAN (Mongo) com índice, e Seq Scan (Parallel Seq Scan em 1 milhão) e COLLSCAN
   sem índice. Os planos de cada medição continuam nos JSON (campos `tipo_acesso` e `indice`).
+
+### 17.11 C6: desconto alto de promoção (`promocao.descontoPercentual = 80`) (decisão final, 20/10) — **alterar o texto do TCC, o gerador e refazer a C6**
+
+**A consulta.** A C6 busca itens por **valor** de um atributo variável aninhado: promoções com **80% de desconto**, que são raras ("queima de estoque").
+- PostgreSQL: `SELECT nome, categoria, atributos_variaveis->'promocao' AS promocao FROM itens WHERE atributos_variaveis @> '{"promocao":{"descontoPercentual":80}}' AND status <> 'DELETED'`.
+- MongoDB: `find({"promocao.descontoPercentual": 80, "status": {"$ne": "DELETED"}}, {nome, categoria, promocao})`.
+- Índices: GIN em `atributos_variaveis` (PostgreSQL) e wildcard `$**` (MongoDB), os mesmos de antes.
+- Arquivos: `analises.py` (gerador e funções `consulta_c6_*` e `explain_c6_*`, com `desconto=80`), notebook (célula 7, do gerador, e Seção 6, C6) e README. A C6 **não** entra no experimento de seletividade.
+
+**Mudança no gerador de dados** (`gerar_promocao`, no `analises.py` e na célula 7 do notebook).
+- O desconto comum continua de 5 a 30% (sorteio principal). Uma minoria, **2% das promoções**, vira desconto alto: 50, 60, 70 ou 80% (`PROB_DESCONTO_ALTO` e `DESCONTOS_ALTOS`). A data de vencimento continua fixa (`validoAte = "2026-12-31"`).
+- O `precoOriginal` continua derivado do desconto (`valor / (1 - desconto/100)`).
+- O desconto alto vem de um gerador de números aleatórios **próprio** (`rng_promocao`, semente 42, reiniciado em `gerar_dados`), que não consome o sorteio principal. Verificado no volume Médio: **todo o resto
+  dos dados é idêntico** ao anterior; mudam só o desconto, o `precoOriginal` e o `hash` dos itens com promoção alta.
+
+**Seletividade** (gerador real, itens não deletados):
+
+| Volume | Itens | Com `promocao` | Desconto = 80 | % dos itens |
+|---|---|---|---|---|
+| Pequeno | 4.743 | 1.332 (28,1%) | 5 | 0,11% |
+| Médio | 94.990 | 27.755 (29,2%) | 151 | 0,16% |
+| Grande | 949.750 | 277.147 (29,2%) | 1.452 | 0,15% |
+
+Com o desconto comum (5 a 30%) um valor exato devolve ~1,1% dos itens (10.569 no Grande, para o desconto 30).
+
+**Resultado da rodada de teste** (20/10, `python analises.py volume --consultas C6 --repeats 10 --saida teste_c6`; cache limpo antes de cada repetição; mediana; **não é a rodada oficial**; feita com uma versão do gerador em que as datas de vencimento variavam, então os itens com desconto 80 foram 4, 141 e 1.388, bem perto dos finais):
+
+| Volume | PostgreSQL: sem índice → GIN | MongoDB: sem índice → wildcard |
+|---|---|---|
+| Pequeno (~5 itens) | 18,0 → 25,6 ms (0,7×) | 17,0 → 10,6 ms (1,6×) |
+| Médio (~150 itens) | 104 → 53 ms (2,0×) | 133 → 67 ms (2,0×) |
+| Grande (~1.400 itens) | 1.157 → 204 ms (5,7×) | 1.249 → 350 ms (3,6×) |
+
+Espaço dos índices no Grande: GIN 11,6 MB e wildcard 148,5 MB. Planos: `Seq Scan`/`COLLSCAN` sem índice; `Bitmap Heap Scan` em `gin_c6` e `IXSCAN` em `wildcard_c6` com índice.
+O ganho cresce com o volume (PostgreSQL: 0,7× → 2,0× → 5,7×), o que apoia a hipótese de que a vantagem do índice aparece quando o filtro é seletivo e o banco é grande. No Pequeno, com ~5 itens, a diferença é ruído.
+
+**Justificativa para o texto.**
+- [ ] `promocao` é um atributo **opcional** que aparece em três categorias (pizza, sobremesa e lanche): o caso típico de atributo variável em que o GIN e o wildcard indexam todos os caminhos de uma vez,
+  sem escolher antes qual atributo indexar.
+- [ ] A consulta é seletiva (~0,15%): descontos altos são uma minoria ("queima de estoque"). A seletividade importa: uma versão com desconto comum (~1,1% dos itens) não deixava o índice compensar com o cache limpo.
+- [ ] **Redação sobre a B-tree** (cuidado): não escrever que a B-tree "não consegue" atender a C6. Em um caminho conhecido ela atende (no MongoDB, índice simples; no PostgreSQL, índice de expressão com a consulta
+  reescrita, porque a B-tree não suporta `@>`). O argumento correto é a generalidade: o catálogo tem atributos que variam de item para item, e a B-tree cobre um caminho só, exigindo um índice por atributo,
+  escolhido antes. O GIN e o wildcard indexam todos os caminhos com um índice. Por isso a C6 **não** testa B-tree; registrar como limitação ou trabalho futuro.
+- [ ] O espaço do wildcard (148,5 MB) contra o do GIN (11,6 MB) no Grande precisa da ressalva da seção 2: o wildcard indexa todos os campos do documento.
+
+**O que escrever/trocar no texto.**
+- [ ] C6 (padrão de acesso): "busca por valor em um atributo variável aninhado (igualdade em `promocao.descontoPercentual`)", com os dois comandos acima e a observação de que devolve ~0,15% dos itens.
+- [ ] Tabela de atributos variáveis do `.tex` (`promocao`): o `descontoPercentual` é um inteiro entre 5 e 30, e em 2% das promoções é 50, 60, 70 ou 80. O `validoAte` continua uma data fixa (nada a mudar).
+- [ ] Declarar a limitação: a seletividade é a de uma única consulta (desconto = 80); em 5 mil itens são apenas 5 itens.
+
+**Refazer os resultados da C6.** Os JSON e os gráficos em `resultados_final_v2`, `v3` e `v4` foram medidos com outra C6 (e com os dados antigos de promoção). Rodar a rodada completa
+(`python analises.py --repeats 10 --repeats-carga 5 --saida <pasta>`) ou, para a C6, `python analises.py volume --consultas C6 --saida <pasta> --repeats 10`, depois `python graficos.py --entrada <pasta>`.
+
+### 17.12 CPU e memória da carga em 5 mil itens: poucas amostras (rodada `resultados_final_v2`, 18/10) — **lembrar ao escrever o texto**
+
+**O que aconteceu.** Ao gerar os gráficos da rodada nova, o `graficos.py` deu `TypeError` nos gráficos 7 e 8 (CPU e memória da carga): em 5 mil itens a
+carga dura ~0,1 a 0,3 s, menos que o intervalo do monitor, e em 2 das 5 rodadas (a 3 e a 4) o PostgreSQL ficou com **0 amostras**, então CPU e memória vieram
+vazios (`None`) no JSON. Correção em `graficos.py` (`_valores_rodadas`): rodadas sem amostra são **ignoradas**. Nada foi perdido; o benchmark rodou bem.
+Consequência: em 5 mil itens, CPU e memória do PostgreSQL nos gráficos 7 e 8 vêm de **3 das 5 rodadas**.
+
+**Por que a CPU parece maior em 5 mil itens (é artefato, não é "mais CPU").** Médias da CPU da carga, por volume:
+
+| Volume | PostgreSQL | MongoDB | Amostras por rodada |
+|---|---|---|---|
+| 5 mil | ~71% | ~69% | 0 a 2 (PG), 1 (Mongo) |
+| 100 mil | ~59% | ~35% | 24 a 34 (PG), 5 a 7 (Mongo) |
+| 1 milhão | ~57% | ~35% | ~280 a 310 (PG), ~50 a 70 (Mongo) |
+
+- Com 0 a 2 amostras, a "média" é um instante. Uma carga curta é quase só arranque (conexões, esquema, envio de tudo de uma vez), e a amostra pega esse pico.
+- Em cargas longas a média inclui os momentos mais calmos (pausas para gravar em disco); em 1 milhão o PostgreSQL passa ~60 s enviando e a CPU média cai.
+- Prova de que é artefato: nos volumes grandes o valor é estável entre as rodadas (PG 54 a 61% em 1 milhão), e em 5 mil oscila muito (40 a 91%).
+
+**O que escrever no texto.**
+- [ ] **Não interpretar a CPU de 5 mil itens.** Dizer que nesse volume a carga dura menos de 1 s e há de 0 a 2 amostras por rodada (PostgreSQL) e 1 (MongoDB),
+  então a média não é representativa; em 5 mil itens os gráficos 7 e 8 do PostgreSQL usam 3 das 5 rodadas.
+- [ ] **Conclusão que se sustenta (100 mil e 1 milhão):** o PostgreSQL usa mais CPU (~57 a 59%) que o MongoDB (~35%) durante a carga.
+- [ ] Se quiser citar algo dos volumes pequenos, o **pico** (`cpu_max_percent`) é mais estável que a média.
+
+### 17.13 C7: opção rara "Picles extra" para a seletividade (18/10) — **alterar o texto da C7 e refazer a seletividade da C7**
+
+**O que mudou.** O gerador de dados (`gerar_opcoes_grupos` e `gerar_dados`, no `analises.py` e na célula 7 do notebook) ganhou a opção **"Picles extra"**
+(preço adicional R$ 2,50) no grupo "Adicionais" dos lanches, junto de "Sem cebola", "Bacon extra" e "Cheddar extra".
+- **Quem oferece:** só ~1% dos restaurantes (no mínimo 1), todos **pequenos**, escolhidos de forma **determinística** (os primeiros restaurantes pequenos depois
+  dos dois de teste, `restaurantes[0]` e `[1]`). Como a oferta é por restaurante (como já era para Bacon e Cheddar), todos os lanches do restaurante têm a opção.
+- **Sem consumir o sorteio:** a escolha não usa `random`, então todo o resto dos dados continua **idêntico** ao anterior. Só mudam as opções (e, por consequência,
+  o hash) dos lanches desses poucos restaurantes. Verificado comparando o gerador novo com uma cópia sem as linhas do picles, nos três volumes.
+- **Seletividade da C7** (experimento de seletividade, gráfico 3): agora tem três pontos: `Picles extra`, `Cheddar extra` e `Bacon extra`.
+
+**Quanto cada volume devolve** (verificado nos dados gerados):
+
+| Volume | Restaurantes com picles | Itens com "Picles extra" | % dos itens | Cheddar extra | Bacon extra |
+|---|---|---|---|---|---|
+| 5 mil | 1 | 10 | 0,2% | 7,7% | 22,5% |
+| 100 mil | 2 | 71 | 0,071% | 11,0% | 23,5% |
+| 1 milhão | 10 | 921 | **0,092%** | ~9,8% | ~21,5% |
+
+**O que continua igual.** O experimento de **volume** (e portanto o **gráfico 2**) continua usando "Bacon extra" para a C7 (valor padrão de `consulta_c7_pg`), que é
+pouco seletivo (~22%). O Picles só entra na seletividade (volume Grande). O README e a lógica dos índices (GIN e multikey) não mudaram.
+
+**O que refazer.**
+- [x] A **seletividade da C7** foi **refeita** em 18/10 (`python analises.py seletividade --consultas C7 --saida resultados_final_v2 --repeats 10`, JSON gravado às 16:27) e o
+  gráfico 3 da C7 já mostra os três valores (`resultados_final_v2/graficos/grafico3_seletividade_C7.png`).
+- [ ] Diferença a declarar: os demais resultados de `resultados_final_v2` foram gerados com dados sem o picles. A diferença é desprezível (só as opções de lanches de ~10
+  restaurantes no volume Grande), mas é um detalhe de reprodutibilidade; uma rodada completa nova a eliminaria.
+
+**O que escrever no texto da C7.**
+- [ ] Descrever a opção "Picles extra" como a opção seletiva do experimento: oferecida só por ~1% dos restaurantes (pequenos), devolve ~0,09% dos itens em 1 milhão
+  (921), e foi acrescentada ao gerador para permitir avaliar o índice (GIN e multikey) em uma consulta seletiva.
+- [ ] Declarar a limitação: o experimento de volume e o gráfico 2 usam "Bacon extra" (pouco seletivo); o caso seletivo só aparece na seletividade (gráfico 3).
+- [ ] Após refazer a seletividade da C7, conferir no gráfico 3 se o índice passa a ajudar no Picles (esperado) e escrever o resultado com os números novos.
+
+**Resultado da C7 na seletividade (volume Grande, média das 10 repetições, ms).** O índice **ajuda muito no caso seletivo e atrapalha ou ajuda pouco nos outros**:
+
+| Opção | Linhas | PG sem → com GIN | Ganho PG | Mongo sem → com multikey | Ganho Mongo |
+|---|---|---|---|---|---|
+| **Picles extra** | 872 (~0,09%) | 1172 → **145** | **8,1×** | 1777 → **262** | **6,8×** |
+| Cheddar extra | 93.517 (~9,4%) | 2522 → 5806 | 0,43× (piora) | 2593 → 1563 | 1,66× |
+| Bacon extra | 204.625 (~20%) | 3954 → 5452 | 0,73× (piora) | 3717 → 2717 | 1,37× |
+
+- [ ] Planos: no Picles, o PostgreSQL usa `Parallel Seq Scan` sem índice e `Bitmap Heap Scan` com o GIN, e o MongoDB, `COLLSCAN` e `IXSCAN`; em Cheddar e Bacon, o PostgreSQL usa `Seq Scan`
+  sem índice e `Bitmap Heap Scan` com o GIN (que piora o tempo).
+- [ ] Conclusão para o texto da C7: o GIN e o multikey só compensam quando a opção é rara (~0,09% dos itens, ganho de ~7 a 8×); em opções frequentes (~9% a ~20% dos itens) o GIN do
+  PostgreSQL piora (0,43× e 0,73×) e o multikey do MongoDB ajuda pouco (1,4× a 1,7×). Isso resolve a limitação anterior ("C7 só avaliada em consultas pouco seletivas"), embora o
+  **gráfico 2** continue com o Bacon extra (pouco seletivo) para a C7.
+- [ ] Observação de reprodutibilidade: o JSON de seletividade tem os dados com picles (esta rodada), enquanto volume, lote e carga de `resultados_final_v2` foram gerados em 17/10 sem o picles (diferença só nas
+  opções de lanches de ~10 restaurantes do volume Grande; desprezível). A contagem do Picles na seletividade (872) é sem os itens `DELETED`; no gerador são 921 itens com a opção.
+
+### 17.14 Revisão do `analises.py` (18/10): seis pontos verificados
+
+Seis apontamentos de uma revisão externa foram conferidos no código e nos dados. Todos procedem.
+
+| # | Ponto | Situação |
+|---|---|---|
+| 1 | Lote C2 "Atualização": sem aquecimento, a 1ª repetição é uma inserção | **Corrigido no código (18/10); falta refazer o lote da C2** (ver abaixo) |
+| 2 | `ms_por_item` usa média e a legenda dizia mediana | Já resolvido (o gráfico 4 plota a média e as legendas foram removidas) |
+| 3 | Código morto `acao_c2_insercao_pg` e `_mongo` (usavam `eventos_insercao_c2_*`, inexistente) | **Corrigido**: removido do `analises.py` (no notebook elas existem e funcionam) |
+| 4 | Carga assimétrica (uma transação no PostgreSQL contra confirmação por lote no MongoDB; chave estrangeira) | **Confirmação corrigida em 19/10** (ver 17.16); a chave estrangeira continua registrada como limitação (seção 2) |
+| 5 | `UNIDADES_MIB`: GB e TB fora de escala | **Corrigido**: GB = 953,674 e TB = 953.674,3 MiB (impacto baixo: o `docker stats` usa MiB e GiB) |
+| 6 | Seletividade quebrava se `medir_tempo` devolvesse `None` | **Corrigido**: a medição que falha é registrada como `None` e a rodada continua (o gráfico 3 já ignora `None`) |
+
+**Ponto 1 em detalhe (pendente).** Em `rodar_lote`, `medir_tempo` roda com `warm_up=False`, e o `antes()` do modo "atualização" não cria os itens. Então, em cada tamanho de lote:
+a **1ª repetição insere** os itens (eles ainda não existem) e as **9 seguintes atualizam**. O `ms_por_item` usa a média das 10, que mistura as duas operações.
+- Efeito medido em `resultados_final_v2`: no **MongoDB**, a inserção é bem mais rápida que a atualização (`replace`), e a 1ª repetição fica em ~0,23× a 0,28× das outras nos lotes de 10 mil a 100 mil; a média das 10 fica ~**8% abaixo** da média das 9 atualizações (0,92× em 100 mil). No **PostgreSQL** o efeito é de ~2%.
+- A conclusão qualitativa não muda (o PostgreSQL continua mais lento por item), mas o custo do Mongo na "C2 – Atualização" está subestimado em ~8% nos lotes grandes.
+- Correção possível: criar os itens antes da medição (o `rodar_volume` já faz isso para a C2) ou usar `warm_up=True` nesse modo; exige refazer só a "C2 – Atualização" do lote (`python analises.py lote --consultas C2 ...`).
+- [x] **Decisão (18/10): corrigir e refazer.** Em `criar_fabrica_c2_pg` e `criar_fabrica_c2_mongo` (e na célula do lote do notebook), no modo "atualização" os itens agora são
+  **criados uma vez**, com a versão 0, antes das repetições (fora da medição); assim **todas** as repetições medidas atualizam. Testado no banco (50 itens): antes da 1ª repetição os
+  itens existem (50), e depois dela as linhas continuam 50, com a versão 1 (atualização), sem duplicar; no modo "inserção" os itens não existem antes (0), como deveria.
+- [ ] **Refazer o lote da C2** (os resultados atuais da "C2 – Atualização" têm a 1ª repetição como inserção):
+  `sudo -v` e `python analises.py lote --consultas C2 --saida resultados_final_v2 --repeats 10`, depois `python graficos.py --entrada resultados_final_v2`.
+  Refaz inserção e atualização da C2 (~27 min); C3 e C8 do lote ficam como estão.
+
+### 17.15 Relação entre o notebook e o `analises.py` (19/10) — **incluir no método**
+
+O notebook `analises.ipynb` e o `analises.py` foram comparados função por função e alinhados. Frase pronta para o texto:
+
+> O notebook é uma versão explicativa do `analises.py`. Ambos executam as mesmas operações e medições; o script automatiza a execução completa e coleta CPU e memória por leitura direta do cgroup.
+
+- [ ] Incluir a frase acima na descrição do método (onde o notebook e o script são apresentados).
+
+**O que foi alinhado no notebook (19/10):**
+- Carga dos dados **lote a lote** (10 mil itens por vez), com o cronômetro `_Envio` contando só o envio ao banco (`tempo_envio_ms`); `tempo_total_ms` inclui a conversão.
+- Tamanhos de lote até 100 mil (`LOTES` com 50.000 e 100.000).
+- Seletividade da C1 só com sobremesa, bebida e pizza (sem os casos "deletados").
+- `preparar_ambiente` mede a carga dos dois bancos, e o volume repete a carga 5 vezes (`resultados_carga.json` e `resultados_carga_rodadas.json`).
+- `REPETICOES = 10` (o padrão do script é 5; a rodada final usou 10).
+
+**O que continua diferente (não afeta os tempos medidos):**
+- **CPU e memória:** o script lê direto do cgroup do Docker a cada 0,25 s; o notebook usa `docker stats` a cada 1 s (menos amostras). Isso pesa mais nos volumes pequenos (ver 17.12).
+- O script libera a lista `itens` da memória depois da carga (`itens = None` e `gc.collect()`); o notebook não, porque células anteriores a usam.
+- O script é um programa de linha de comando (argumentos, `fases.csv`, `salvar_json`, retomada de consultas); o notebook roda célula por célula.
+
+**Ressalva:** o notebook alterado ainda **não foi executado**. Antes de afirmar que os resultados coincidem, rodar ao menos o volume Pequeno e comparar com `resultados_final_v3`.
+- [ ] Rodar o notebook (ao menos o volume Pequeno) e conferir que os tempos ficam parecidos com os da v3.
+
+### 17.16 Carga do PostgreSQL com `commit` a cada lote (19/10) — **refazer a carga e atualizar o texto**
+
+Antes, o PostgreSQL inseria todos os lotes numa única transação e confirmava uma vez no fim, enquanto o MongoDB confirmava cada `insert_many` (`journal=True`). Agora o PostgreSQL faz
+`conn.commit()` depois de cada lote de 10 mil (e depois dos restaurantes), dentro do cronômetro `_Envio`. Os dois bancos seguem a mesma regra: confirmar e gravar a cada 10 mil itens.
+Alterado no `analises.py` e na célula 25 do notebook.
+
+- [ ] **Refazer a carga:** os `resultados_carga*.json` da v3 foram medidos com um só commit. A carga é refeita na rodada completa (o `volume` mede a carga de cada tamanho); só os tempos de carga do PostgreSQL mudam, e consultas e índices não são afetados.
+- [ ] Atualizar o texto: o PostgreSQL carrega com `commit` a cada lote (não mais "uma única transação"), e a limitação de carga assimétrica deixa de existir (resta a chave estrangeira).
+- Expectativa (não medida): o tempo de envio do PostgreSQL sobe um pouco (100 confirmações em vez de 1 em 1 milhão de itens); a conclusão (PostgreSQL carrega mais devagar, ~3,8× no Grande na v3) não deve mudar.
+
+### 17.17 Conferência do `desenvolvimento.tex` contra o código (19/10) — **o que alterar no texto**
+
+Conferido o capítulo de desenvolvimento (`TCC/TCC___template_original2/.../tex/capitulos/desenvolvimento.tex`) contra `analises.py`, `docker-compose.yml` e `requirements.txt`.
+Os números de linha são do `desenvolvimento.tex`. Nada foi alterado no texto ainda.
+
+**Consultas**
+- [ ] **C6** (linhas 505, 612-624 e 714): trocar "existência de atributo variável / itens em promoção" por "valor de um atributo variável aninhado (`promocao.descontoPercentual = 80`, descontos altos raros)".
+  Trocar os dois códigos (PostgreSQL: `atributos_variaveis @> '{"promocao":{"descontoPercentual":80}}'`, devolvendo `atributos_variaveis->'promocao'`; MongoDB:
+  `{"promocao.descontoPercentual": 80}`, devolvendo `promocao`). Ver 17.11.
+- [ ] **Justificativa dos índices** (linhas 727-731 e 740-742): reescrever o trecho "a B-tree não responde se determinada chave existe" e "o atributo existe só em parte dos itens";
+  a C6 agora é igualdade em valor aninhado. Os índices (GIN e wildcard) continuam os mesmos.
+- [ ] **C2 no PostgreSQL** (linhas 529-545): trocar `INSERT ... ON CONFLICT` por `UPDATE` condicionado + `INSERT ... WHERE NOT EXISTS` numa instrução (CTE), e justificar (ver 17.9).
+
+**Ambiente e ferramentas**
+- [ ] **Linha 53:** "2 CPUs e 1 GB de memória" → 2 CPUs e **3 GB** (conforme `docker-compose.yml`).
+- [ ] **Linhas 45 e 57:** dizem que a implementação é "feita em um notebook Jupyter". Os resultados vêm do `analises.py`; o notebook é a versão explicativa (frase da seção 17.15).
+- [ ] **Linha 83** (tabela de bibliotecas): `subprocess/threading` não coletam mais via `docker stats`; a leitura é direta do cgroup (`docker stats` só como plano B). Acrescentar o `psycopg2-binary` 2.9.13 (usado no `execute_values`).
+- Conferidos e corretos: Python 3.10.12, Docker 29.1.3, PostgreSQL 14.18, MongoDB 8.0.29, e as versões de SQLAlchemy, PyMongo, Faker, pandas e python-dotenv. A máquina (i5-9300H, 8 GB) não foi verificada.
+
+**Inserção dos dados (linhas 444-486)**
+- [ ] **Linha 446:** "a carga é feita em uma única transação" → lotes de 10.000 itens com `commit` a cada lote (ver 17.16).
+- [ ] **Linha 460:** "cada coleção é carregada com uma única chamada a `insert_many`" → os itens vão em lotes de 10.000 (restaurantes numa chamada só); os dois bancos usam o mesmo tamanho de lote.
+- [ ] **Mesma linha:** a comparação com o `now()` "fixo dentro de uma transação" deixa de valer (cada lote tem um `now()` diferente no PostgreSQL). Reescrever ou tirar.
+- [ ] **Código 4.x do PostgreSQL:** mostra um `INSERT` por linha; o código usa `execute_values` com `page_size=10.000`. Atualizar o código mostrado (conversão lote a lote dentro de `with _Envio():`).
+- [ ] **Linha 484:** acrescentar que são medidos `tempo_envio_ms` (só o envio, sem a conversão no Python) e `tempo_total_ms` (inclui a conversão).
+
+**Metodologia de medição (linhas 746-930)**
+- [ ] **`medir_tempo` (linhas 803-806):** dizer que nenhum experimento usa aquecimento (`warm_up=False`), que o cache é limpo antes de cada repetição (reinício dos containers e descarte do cache do sistema, ver seção 8) e que são 10 repetições.
+- [ ] **Medição de recursos (linhas 818-880):** reescrever texto e Código. Hoje: leitura do cgroup a cada 0,25 s (plano B: `docker stats`), amostras só durante o envio (`_Envio`), `tempo_envio_ms` além do total,
+  memória sem o cache de arquivos, conversão de unidades com `para_mib` (trata GiB).
+- [ ] **Medição de espaço (linhas 901-930):** acrescentar o `fsync` antes do `collStats` no MongoDB e o tamanho lógico (sem compressão, `size`) ao lado do `storageSize`.
+- [ ] **Bloco comentado (linhas 1078-1095):** a frase "amostrado a cada segundo" está desatualizada, caso o bloco volte ao texto.
+- [ ] Incluir no método os itens ainda pendentes das seções 3 (durabilidade), 8 (limpeza de cache), 9 (o que o tempo inclui), 10 (containers) e 12 (preparação do banco).
+
+**Experimentos de escalabilidade**
+- [ ] **Linha 1017:** lotes "1, 10, 100, 1.000 e 10.000" → incluir **50.000 e 100.000**.
+- [ ] **Tabela de seletividade (linha 999):** C7 passa a ter três pontos: **Picles extra** (raro, cerca de 0,09% dos itens), Cheddar extra e Bacon extra (ver 17.13).
+- [ ] **Volume:** explicar que C2, C3 e C8 só são medidos nas versões por `_id` (C2_id, C3_id, C8_id).
+- Conferido e correto: volumes (50/5.000, 200/100.000, 1.000/1.000.000), seletividade da C1, C4 e C5, e a descrição do `antes` e do `depois` do lote (inclusive a C2 atualização com itens já existentes).
+
+**Geração dos dados (linhas 322-440)**
+- [ ] **Tabela de opções (linhas 417-418):** acrescentar "Picles extra" (R$ 2,50) no grupo Adicionais do lanche, oferecido por cerca de 1% dos restaurantes (todos pequenos, escolha determinística).
+  O texto "oferta decidida no nível do restaurante" continua válido.
+- Conferidos e corretos: categorias 35/20/10/35, status 85/10/5, porte 60/30/10 (pesos 1/5/20), tags 30%, promoção 40/30/35%, `gelada` 80%, calorias 200-500, Bacon cerca de 60%,
+  Cheddar cerca de 25%, hash, sementes, schema e DDL.
+
+**Estrutura**
+- [ ] As seções "Resultados Obtidos", "Dificuldades e Limitações" e "Considerações Finais" ainda são o texto vermelho do modelo, sem conteúdo.
+
+**Não conferido:** figuras (modelo, hierarquia, metodologia), `introducao.tex`, `bibliografia.tex`, o capítulo de fundamentação e a especificação da máquina.

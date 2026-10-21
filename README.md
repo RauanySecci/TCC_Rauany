@@ -22,10 +22,9 @@ Escopo do experimento:
 .
 ├── notebooks/
 │   └── analises.ipynb      # implementação completa do experimento (consultas, índices e métodos)
-├── benchmark.py            # a Seção de escalabilidade do notebook, sem Jupyter: gera os JSON dos resultados
+├── analises.py            # a Seção de escalabilidade do notebook, sem Jupyter: gera os JSON dos resultados
 ├── graficos.py             # gera os gráficos do TCC a partir dos JSON
-├── monitorar.py            # acompanha CPU e memória dos contêineres (opcional)
-├── resultados_final_10_repeticoes/   # JSON e gráficos da rodada final (10 repetições)
+├── resultados_final_v4/   # JSON e gráficos da rodada v4 (10 repetições)
 ├── docker-compose.yml      # PostgreSQL 14.18 e MongoDB 8.0.29
 ├── requirements.txt        # dependências Python, com versões fixadas
 ├── .env                    # você deve criar
@@ -35,11 +34,11 @@ Escopo do experimento:
 ## Pré-requisitos
 
 - Docker (Engine ou Desktop) com Docker Compose v2, ou seja, o comando `docker compose`.
-- O cliente `docker` disponível no terminal da máquina que executa o notebook, porque a medição de CPU e memória durante a inserção chama `docker stats`.
+- O cliente `docker` disponível no terminal da máquina que executa o notebook ou o `analises.py`: o notebook mede CPU e memória durante a inserção com `docker stats`, e o `analises.py` lê direto do cgroup do Linux (cgroup v2), usando `docker stats` só se não achar o cgroup.
 - Python 3.10 ou superior.
 - VS Code com a extensão Jupyter, ou JupyterLab.
 - Recursos livres para o Docker: os dois contêineres são limitados a 2 CPUs e 3 GB de memória cada.
-- Para rodar o `benchmark.py` com o cache do sistema operacional limpo antes de cada repetição (Linux), é preciso `sudo` (ver a seção 6). Sem `sudo`, use `--sem-so`: só o cache dos bancos é limpo.
+- Para rodar o `analises.py` com o cache do sistema operacional limpo antes de cada repetição (Linux), é preciso `sudo` (ver a seção 6). Sem `sudo`, use `--sem-so`: só o cache dos bancos é limpo.
 
 ## Configuração
 
@@ -117,19 +116,19 @@ Abra `notebooks/analises.ipynb`, execute as células na ordem, de cima para baix
 
 ### 6. Rodar o benchmark e gerar os gráficos (alternativa ao notebook)
 
-Os resultados do trabalho vêm do `benchmark.py`, que executa a Seção de escalabilidade do notebook sem o Jupyter e grava JSON. Com os contêineres no ar:
+Os resultados do trabalho vêm do `analises.py`, que executa a Seção de escalabilidade do notebook sem o Jupyter e grava JSON. Com os contêineres no ar:
 
 ```bash
 sudo -v      # no mesmo terminal; necessário para limpar o cache do sistema operacional (ou use --sem-so)
-python benchmark.py --repeats 10 --repeats-carga 5 --saida resultados_final_10_repeticoes
-python graficos.py --entrada resultados_final_10_repeticoes
+python analises.py --repeats 10 --repeats-carga 5 --saida resultados_final_v4
+python graficos.py --entrada resultados_final_v4
 ```
 
 - Roda os experimentos de volume (5 mil, 100 mil e 1 milhão de itens), seletividade e lote. A rodada completa leva algumas horas.
 - Antes de **cada repetição** das medições, os contêineres são reiniciados e o cache do sistema operacional é descartado, sem aquecimento. Cada medição tem 10 repetições; a carga inicial de cada volume é repetida 5 vezes, recriando os bancos do zero.
-- O `--consultas` refaz só algumas consultas e mantém o resto do JSON (por exemplo, `python benchmark.py lote --consultas C2 --saida ...`).
+- O `--consultas` refaz só algumas consultas e mantém o resto do JSON (por exemplo, `python analises.py lote --consultas C2 --saida ...`).
 - Os gráficos saem em `<pasta>/graficos/`, junto com `dados_graficos.csv`.
-- Não rode o `monitorar.py` durante as medições: ele consome CPU.
+- Não rode outros programas pesados durante as medições: eles consomem CPU e atrapalham os tempos.
 
 ## O que o notebook faz
 
@@ -139,9 +138,9 @@ O notebook é organizado nas seguintes seções:
 2. **Estrutura do banco:** recria as tabelas `restaurantes` e `itens` no PostgreSQL e limpa as coleções do MongoDB.
 3. **Geração de dados:** gera restaurantes e itens sintéticos, com atributos variáveis que mudam conforme a categoria do item (pizza, bebida, sobremesa e lanche).
 4. **Funções de benchmark:** medição de tempo, de recursos durante a inserção e de espaço em disco.
-5. **Inserção dos dados:** carga nos dois bancos, com medição de tempo, CPU e memória.
+5. **Inserção dos dados:** carga nos dois bancos em lotes de 10 mil itens (com `commit` a cada lote no PostgreSQL), com medição do tempo de envio, CPU e memória.
 6. **Consultas:** implementação das consultas em SQL e em MongoDB, com e sem índices.
-7. **Escalabilidade:** repetição das consultas variando a seletividade, o volume total do banco e o tamanho do lote de escrita. Cada repetição parte do cache vazio (contêineres reiniciados e cache do sistema operacional descartado); o `benchmark.py` repete esse procedimento com 10 repetições por medição e grava os resultados em JSON.
+7. **Escalabilidade:** repetição das consultas variando a seletividade, o volume total do banco e o tamanho do lote de escrita. Cada repetição parte do cache vazio (contêineres reiniciados e cache do sistema operacional descartado); o `analises.py` repete esse procedimento com 10 repetições por medição e grava os resultados em JSON.
 
 ### Consultas
 
@@ -154,6 +153,6 @@ As consultas são agrupadas em dados estruturados (C1 a C4) e dados semiestrutur
 | C3 | Exclusão lógica | Chave primária | Chave primária (`_id`) |
 | C4 | Itens de um restaurante (junção) | Sem índice; B-tree composto | Sem índice; índice composto |
 | C5 | Itens por faixa de preço | Sem índice; B-tree de expressão | Sem índice; índice simples |
-| C6 | Existência de um atributo variável | Sem índice; GIN | Sem índice; wildcard |
+| C6 | Valor de um atributo aninhado (`promocao.descontoPercentual = 80`) | Sem índice; GIN | Sem índice; wildcard |
 | C7 | Filtro em array de objetos aninhados | Sem índice; GIN | Sem índice; multikey |
 | C8 | Adição de tag (atualização parcial) | Chave primária | Chave primária (`_id`) |

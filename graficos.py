@@ -1,9 +1,9 @@
 """
-Gera os gráficos do TCC a partir dos JSON do benchmark.py (PostgreSQL JSONB vs MongoDB).
+Gera os gráficos do TCC a partir dos JSON do analises.py (PostgreSQL JSONB vs MongoDB).
 
     python graficos.py                                   # lê ./resultados, grava ./resultados/graficos
     python graficos.py --entrada resultados --saida graficos
-    python graficos.py --ref Médio                       # volume usado nos gráficos 2 e 5 (padrão: Médio)
+    python graficos.py --ref Médio                       # volume usado nos gráficos 2 e 5 (padrão: Grande)
 
 Gráficos (cada um responde uma pergunta; cada imagem tem um único gráfico):
   1. grafico1_escala_<C>.png        O índice ajuda conforme o volume cresce? Um por consulta (volume, leituras)
@@ -15,13 +15,6 @@ Gráficos (cada um responde uma pergunta; cada imagem tem um único gráfico):
   7. grafico7_carga_cpu.png         Quanta CPU a carga usa?               (com carga repetida: média das rodadas)
   8. grafico8_carga_memoria.png     Quanta memória a carga usa?
   9. grafico9_carga_espaco.png      Quanto espaço os dados ocupam em disco?
-Nos gráficos de leitura, uma tabela abaixo mostra o plano de execução que cada banco usou (Seq Scan,
-Bitmap Heap Scan, IXSCAN, COLLSCAN...), inclusive quando o PostgreSQL ignorou o índice.
-Além dos PNG, grava dados_graficos.csv com os números plotados (versão em tabela dos gráficos).
-
-Padrão visual: PostgreSQL em azul e MongoDB em laranja (paleta validada para daltonismo);
-linha cheia e marcador cheio = com índice; tracejada e marcador vazio = sem índice;
-pontilhada = índice forçado. A cor nunca é o único sinal: o estilo da linha também diferencia.
 """
 import argparse
 import csv
@@ -60,7 +53,7 @@ COMPARAVEIS = LEITURAS + POR_ID
 TITULO = {
     "C1": "C1 · categoria e status", "C2": "C2 · upsert", "C3": "C3 · soft delete",
     "C4": "C4 · junção (itens do restaurante)", "C5": "C5 · faixa de preço",
-    "C6": "C6 · existência de atributo", "C7": "C7 · array aninhado", "C8": "C8 · atualização parcial",
+    "C6": "C6 · valor de atributo aninhado", "C7": "C7 · array aninhado", "C8": "C8 · atualização parcial",
     "C2_id": "C2 · upsert por id", "C3_id": "C3 · soft delete por id", "C8_id": "C8 · atualização parcial por id",
 }
 SUFIXO_FORCADO = "(índice forçado)"
@@ -68,7 +61,6 @@ SUFIXO_FORCADO = "(índice forçado)"
 linhas_csv = []  # (grafico, painel, serie, x, y, min, max)
 
 
-# ------------------------------------------------------------------ utilidades
 def tipo_do_rotulo(rotulo):
     banco = "PostgreSQL" if rotulo.startswith("PostgreSQL") else "MongoDB"
     if SUFIXO_FORCADO in rotulo:
@@ -211,7 +203,7 @@ def carregar(caminho):
     return json.loads(caminho.read_text(encoding="utf-8"))
 
 
-# ------------------------------------------------------------------ 1. escala com o volume (um por consulta)
+# 1. escala com o volume (um por consulta)
 def _estatisticas(r):
     """(média, Q1, Q3, mínimo, máximo) das repetições; quartis por interpolação linear (numpy.percentile)."""
     t = r["tempos_brutos"]
@@ -277,7 +269,7 @@ def grafico_escala(vol, saida, estatistica="mediana"):
         salvar(fig, saida / f"grafico1_escala_{c}.png")
 
 
-# ------------------------------------------------------------------ 2. ganho do índice
+# 2. ganho do índice
 def grafico_ganho(vol, ref, saida, estatistica="mediana", sufixo=""):
     """Ganho = tempo sem índice ÷ tempo com índice; estatistica: \"mediana\" ou \"media\" das repetições."""
     usar_media = estatistica == "media"
@@ -328,7 +320,7 @@ def grafico_ganho(vol, ref, saida, estatistica="mediana", sufixo=""):
     salvar(fig, saida / f"grafico2_ganho_indice{sufixo}.png")
 
 
-# ------------------------------------------------------------------ 3. seletividade (um gráfico por consulta)
+# 3. seletividade (um gráfico por consulta)
 ORDEM_BARRAS = [("PostgreSQL", "sem"), ("PostgreSQL", "com"), ("PostgreSQL", "forcado"), ("MongoDB", "sem"),
                 ("MongoDB", "com")]
 def grafico_seletividade(sel, saida, estatistica="mediana", variacao=False):
@@ -387,7 +379,7 @@ def grafico_seletividade(sel, saida, estatistica="mediana", variacao=False):
         salvar(fig, saida / f"grafico3_seletividade_{c}.png")
 
 
-# ------------------------------------------------------------------ 5. lote (um por operação)
+# 4. lote (um por operação)
 ARQUIVO_LOTE = {"C2 - Inserção": "C2_insercao", "C2 - Atualização": "C2_atualizacao", "C8": "C8", "C3": "C3"}
 
 
@@ -452,7 +444,7 @@ def grafico_lote(lote, saida, estatistica="mediana"):
         salvar(fig, saida / f"grafico4_lote_{ARQUIVO_LOTE[chave]}.png")
 
 
-# ------------------------------------------------------------------ 6. espaço do índice
+# 5. espaço do índice
 def grafico_espaco(vol, ref, saida):
     dados = vol[ref]
     fig, ax = figura_simples(f"Espaço ocupado pelos índices (volume de {NOME_VOLUME[ref]} de itens)", (11, 5.2))
@@ -480,7 +472,7 @@ def grafico_espaco(vol, ref, saida):
     salvar(fig, saida / "grafico5_espaco_indice.png")
 
 
-# ------------------------------------------------------------------ 6-9. carga inicial dos dados
+# 6-9. carga inicial dos dados
 def _barras_carga(carga, series, titulo, subtitulo, nota, ylabel, arquivo, formatar, log_y=False, tamanho=(8.6, 5.2)):
     """series: [(rótulo, banco, estilo da barra, valor(c) -> número|None, máximo(c) -> número|None)]."""
     presets = [p for p in VOLUMES if p in carga]
@@ -564,7 +556,8 @@ def grafico_carga(carga, saida, pular_cpu_memoria=False):
 
 
 def _valores_rodadas(rodadas, preset, banco, metrica):
-    return [r[banco][metrica] for r in rodadas.get(preset, []) if metrica in r.get(banco, {})]
+    # rodadas sem amostra do monitor (comum em 5 mil itens, onde a carga dura menos de 1 s) trazem CPU e memória vazios: ignoradas
+    return [r[banco][metrica] for r in rodadas.get(preset, []) if r.get(banco, {}).get(metrica) is not None]
 
 
 def grafico_carga_rodadas(rodadas, saida):
@@ -624,13 +617,12 @@ def grafico_carga_rodadas(rodadas, saida):
 saida_global = None
 
 
-# ------------------------------------------------------------------ principal
 def main():
-    p = argparse.ArgumentParser(description="Gráficos do TCC a partir dos JSON do benchmark.py.")
+    p = argparse.ArgumentParser(description="Gráficos do TCC a partir dos JSON do analises.py.")
     p.add_argument("--entrada", default="resultados", help="pasta com os JSON (padrão: ./resultados)")
     p.add_argument("--saida", default=None, help="pasta dos PNG (padrão: <entrada>/graficos)")
     p.add_argument("--ref", default=None, choices=list(VOLUMES),
-                   help="volume usado nos gráficos 2 e 5 (padrão: Médio)")
+                   help="volume usado nos gráficos 2 e 5 (padrão: Grande)")
     a = p.parse_args()
 
     entrada = Path(a.entrada) if Path(a.entrada).is_absolute() else RAIZ / a.entrada
@@ -644,11 +636,11 @@ def main():
     rodadas_carga = (json.loads((entrada / "resultados_carga_rodadas.json").read_text(encoding="utf-8"))
                      if (entrada / "resultados_carga_rodadas.json").exists() else None)
     if not (vol or sel or lote or carga):
-        sys.exit(f"Nenhum JSON encontrado em {entrada}. Rode o benchmark.py antes.")
+        sys.exit(f"Nenhum JSON encontrado em {entrada}. Rode o analises.py antes.")
 
     if vol:
         disponiveis = [pr for pr in VOLUMES if pr in vol]
-        ref = a.ref if a.ref in vol else ("Médio" if "Médio" in vol else disponiveis[-1])
+        ref = a.ref if a.ref in vol else ("Grande" if "Grande" in vol else disponiveis[-1])
         print(f"Volume de referência dos gráficos 2 e 5: {ref}")
         grafico_escala(vol, saida, estatistica="media")
         grafico_ganho(vol, ref, saida, estatistica="media")
