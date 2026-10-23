@@ -1,0 +1,38 @@
+epoch,fase
+1792549334.47,volume Pequeno: carga
+1792549339.58,volume Pequeno: C1
+1792549447.43,volume Pequeno: C5
+1792549549.53,volume Pequeno: C6
+1792549652.75,volume Pequeno: C4
+1792549760.37,volume Pequeno: C7
+1792549863.65,volume Pequeno: C2_id
+1792549968.44,volume Pequeno: C3_id
+1792550073.65,volume Pequeno: C8_id
+1792550171.92,volume Médio: carga
+1792550241.97,volume Médio: C1
+1792550358.17,volume Médio: C5
+1792550471.57,volume Médio: C6
+1792550581.59,volume Médio: C4
+1792550685.56,volume Médio: C7
+1792550807.13,volume Médio: C2_id
+1792550917.21,volume Médio: C3_id
+1792551022.46,volume Médio: C8_id
+1792551130.21,volume Grande: carga
+1792552012.88,volume Grande: C1
+1792552239.96,volume Grande: C5
+1792552570.63,volume Grande: C6
+1792552756.88,volume Grande: C4
+1792552897.48,volume Grande: C7
+1792553177.44,volume Grande: C2_id
+1792553313.98,volume Grande: C3_id
+1792553433.44,volume Grande: C8_id
+1792553550.88,seletividade Grande: carga
+1792553719.47,seletividade: C1
+1792554262.30,seletividade: C5
+1792555507.92,seletividade: C4
+1792555918.95,seletividade: C7
+1792556604.36,lote Grande: carga
+1792556764.60,lote: C2 - Inserção
+1792557551.13,lote: C2 - Atualização
+1792558384.65,lote: C3
+1792559289.08,lote: C8

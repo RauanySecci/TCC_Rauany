@@ -32,7 +32,7 @@ import numpy as np
 from matplotlib.colors import to_rgba
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
-from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter
+from matplotlib.ticker import FuncFormatter, LogLocator, NullFormatter, NullLocator
 
 RAIZ = Path(__file__).resolve().parent
 
@@ -203,17 +203,30 @@ def carregar(caminho):
     return json.loads(caminho.read_text(encoding="utf-8"))
 
 
-# 1. escala com o volume (um por consulta)
-def _estatisticas(r):
-    """(média, Q1, Q3, mínimo, máximo) das repetições; quartis por interpolação linear (numpy.percentile)."""
-    t = r["tempos_brutos"]
-    q1, q3 = np.percentile(t, [25, 75])
-    return sum(t) / len(t), float(q1), float(q3), min(t), max(t)
+# 1. escala com o volume (um por consulta), em boxplot
+def itens_boxplot():
+    """Legenda de como ler cada boxplot (gráfico 1)."""
+    return [Patch(facecolor=to_rgba(TINTA_2, 0.45), edgecolor=TINTA_2, linewidth=1.2, label="caixa: Q1 a Q3"),
+            Line2D([], [], color=TINTA, lw=2, label="traço: média"),
+            Line2D([], [], color=TINTA_2, lw=1.2, label="fio: mínimo a máximo")]
 
 
-def grafico_escala(vol, saida, estatistica="mediana"):
-    """estatistica="mediana": pontos = mediana. "media": pontos = média; barra grossa = Q1 a Q3; fio fino = mínimo a máximo."""
-    media = estatistica == "media"
+# cores de sempre por banco (sem índice = mais claro, com índice = cheio); só o índice forçado ganha cor própria
+COR_FORCADO = "#cc79a7"
+
+
+def estilo_caixa(banco, tipo):
+    if tipo == "forcado":
+        return dict(facecolor=COR_FORCADO, edgecolor=COR_FORCADO, linewidth=1)
+    cor = COR[banco]
+    if tipo == "sem":
+        return dict(facecolor=to_rgba(cor, 0.35), edgecolor=cor, linewidth=1.2)
+    return dict(facecolor=cor, edgecolor=cor, linewidth=1)
+
+
+def grafico_escala(vol, saida):
+    """Boxplot dos tempos brutos das repetições em cada volume: caixa = Q1 a Q3 (numpy.percentile), traço = média,
+    fio = mínimo a máximo. Sem linhas ligando os volumes."""
     presets = [p for p in VOLUMES if p in vol]
     if len(presets) < 2:
         print("AVISO: gráfico 1 pulado (precisa de ao menos 2 volumes).")
@@ -229,42 +242,36 @@ def grafico_escala(vol, saida, estatistica="mediana"):
         y_min, y_max = float("inf"), 0.0
         for k, rotulo in enumerate(rotulos):
             banco, tipo = tipo_do_rotulo(rotulo)
-            if media:
-                pts = [(VOLUMES[p], *_estatisticas(vol[p][c][rotulo])) for p in presets if vol[p].get(c, {}).get(rotulo)]
-            else:
-                pts = [(VOLUMES[p], mediana(vol[p].get(c, {}).get(rotulo))) for p in presets]
-                pts = [(x, y) for x, y in pts if y is not None]
-            if not pts:
-                continue
             tem_forcado |= tipo == "forcado"
-            if media:
-                desloc = 1 + 0.05 * (k - (len(rotulos) - 1) / 2)  # afasta as séries na escala log
-                xs_p = [x * desloc for x, *_ in pts]
-                ax.plot(xs_p, [m for _, m, *_ in pts], lw=2, ms=6, **estilo(banco, tipo))
-                for xp, (_, m, q1, q3, mn, mx) in zip(xs_p, pts):
-                    ax.vlines(xp, mn, mx, color=COR[banco], lw=1.2, zorder=2)  # fio: mínimo a máximo
-                    ax.vlines(xp, q1, q3, color=COR[banco], lw=5, alpha=0.45, zorder=2)  # barra: Q1 a Q3
-                    ax.plot([xp], [m], ls="", ms=6, **{k_: v_ for k_, v_ in estilo(banco, tipo).items() if k_.startswith("marker")})
-                y_min = min(y_min, *[p[4] for p in pts])
-                y_max = max(y_max, *[p[5] for p in pts])
-            else:
-                ax.plot(*zip(*pts), lw=2, ms=6, **estilo(banco, tipo))
-            for ponto in pts:
-                if media:
-                    x, m, q1, q3, mn, mx = ponto
-                    linhas_csv.append(("1_escala_volume_media", c, nome_serie(banco, tipo), x, m, mn, mx))
-                    linhas_csv.append(("1_escala_volume_Q1_Q3", c, nome_serie(banco, tipo), x, q1, q3, None))
-                else:
-                    linhas_csv.append(("1_escala_volume", c, nome_serie(banco, tipo), ponto[0], ponto[1], None, None))
+            centro = 1 + 0.2 * (k - (len(rotulos) - 1) / 2)  # afasta as séries na escala log
+            meia = 1.08  # meia-largura da caixa (fator multiplicativo)
+            for p in presets:
+                r = vol[p].get(c, {}).get(rotulo)
+                if not r:
+                    continue
+                t = r["tempos_brutos"]
+                q1, q3 = np.percentile(t, [25, 75])
+                med = sum(t) / len(t)
+                mn, mx = min(t), max(t)
+                xc = VOLUMES[p] * centro
+                x0, x1 = xc / meia, xc * meia
+                ax.vlines(xc, mn, mx, color=to_rgba(estilo_caixa(banco, tipo)["edgecolor"], 0.45 if tipo == "sem" else 1), lw=1.6, zorder=2)
+                ax.add_patch(plt.Rectangle((x0, q1), x1 - x0, q3 - q1, zorder=3, **estilo_caixa(banco, tipo)))
+                ax.hlines(med, x0, x1, color=TINTA, lw=2, zorder=4)
+                y_min, y_max = min(y_min, mn), max(y_max, mx)
+                linhas_csv.append(("1_escala_volume_media", c, nome_serie(banco, tipo), VOLUMES[p], med, mn, mx))
+                linhas_csv.append(("1_escala_volume_Q1_Q3", c, nome_serie(banco, tipo), VOLUMES[p], q1, q3, None))
         ax.set_xticks(xs)
         ax.set_xticklabels([NOME_VOLUME[p] for p in presets])
-        if media and y_max:  # o autoajuste da escala log estica os eixos com as barras de erro
-            ax.set_xlim(min(xs) / 1.6, max(xs) * 1.6)
-            ax.set_ylim(y_min / 1.3, y_max * 2.2)
+        ax.xaxis.set_minor_locator(NullLocator())  # só os 3 volumes medidos, sem marcas intermediárias
+        ax.set_xlim(min(xs) / 1.9, max(xs) * 1.9)
+        ax.set_ylim(y_min / 1.3, y_max * 2.6)
         ax.set_xlabel("itens no banco", fontsize=9, color=TINTA_2)
         ax.set_ylabel("tempo (ms)", fontsize=9, color=TINTA_2)
-        ax.legend(handles=itens_legenda(forcado=tem_forcado) + (itens_variacao() if media else []), loc="upper left",
-                  frameon=False, fontsize=8.5, labelcolor=TINTA, ncol=2, handlelength=3.2)
+        tipos = dict.fromkeys(tipo_do_rotulo(r) for r in rotulos)
+        legenda_series = [Patch(label=nome_serie(b, tp), **estilo_caixa(b, tp)) for b, tp in tipos]
+        ax.legend(handles=legenda_series + itens_boxplot(), loc="upper left", frameon=False, fontsize=8.5,
+                  labelcolor=TINTA, ncol=2)
         fig.tight_layout(rect=(0, 0, 1, 0.93))
         salvar(fig, saida / f"grafico1_escala_{c}.png")
 
@@ -286,11 +293,11 @@ def grafico_ganho(vol, ref, saida, estatistica="mediana", sufixo=""):
         barras = []
         for banco in ("PostgreSQL", "MongoDB"):
             sem, com = medianas.get((banco, "sem")), medianas.get((banco, "com"))
-            if sem and com:
-                barras.append((banco, "com", sem / com))
             forc = medianas.get((banco, "forcado"))
-            if sem and forc:
+            if sem and forc:  # o banco ignorou o índice: só o índice forçado mede o efeito dele (uma barra por banco)
                 barras.append((banco, "forcado", sem / forc))
+            elif sem and com:
+                barras.append((banco, "com", sem / com))
         deslocamento = -largura * (len(barras) - 1) / 2
         for k, (banco, tipo, r) in enumerate(barras):
             x = i + deslocamento + k * largura
@@ -528,7 +535,7 @@ def grafico_carga(carga, saida, pular_cpu_memoria=False):
         _barras_carga(carga, [("PostgreSQL", pg, "com", _valor("tempo_envio_ms", 1e-3), None),
                               ("MongoDB", mg, "com", _valor("tempo_envio_ms", 1e-3), None)],
                       "Tempo de carga por volume",
-                      "Tempo gasto enviando os itens ao banco, em lotes de 10 mil, numa única transação no PostgreSQL "
+                      "Tempo gasto enviando os itens ao banco, em lotes de 10 mil, com commit a cada lote nos dois bancos "
                       "(escala logarítmica)",
                       "Não inclui a conversão dos dados no Python.", "tempo (s)", "grafico6_carga_tempo",
                       lambda v: f"{v:.1f} s".replace(".", ",") if v >= 1 else f"{v * 1000:.0f} ms", log_y=True)
@@ -585,7 +592,8 @@ def grafico_carga_rodadas(rodadas, saida):
                 ax.bar(x, media, width=largura * 0.92, **estilo_barra(banco, "com"))
                 ax.errorbar([x], [media], yerr=[[media - mn], [mx - media]], fmt="none", ecolor=TINTA, elinewidth=1.2,
                             capsize=4, zorder=4)
-                ax.text(x, mx, " " + formatar(media), ha="center", va="bottom", fontsize=8.5, color=TINTA)
+                ax.text(x, mx, formatar(media) + "\n(média)", ha="center", va="bottom", fontsize=8.5, color=TINTA,
+                        linespacing=1.15)
                 topo = max(topo, mx)
                 piso = min(piso, mn)
                 linhas_csv.append((arquivo, metrica, banco, VOLUMES[p], media, mn, mx))
@@ -595,7 +603,7 @@ def grafico_carga_rodadas(rodadas, saida):
         if log_y:
             ax.set_ylim(piso / 1.8, topo * 3)
         else:
-            ax.set_ylim(0, topo * 1.25 if topo else 1)
+            ax.set_ylim(0, topo * 1.4 if topo else 1)
         ax.legend(handles=[Patch(label=b, **estilo_barra(b, "com")) for b in bancos]
                   + [Line2D([], [], color=TINTA, lw=1.2, label="fio: mínimo a máximo entre as rodadas")],
                   loc="upper left", frameon=False, fontsize=9, labelcolor=TINTA)
@@ -603,7 +611,7 @@ def grafico_carga_rodadas(rodadas, saida):
         salvar(fig, saida / f"{arquivo}.png")
 
     barras("tempo_envio_ms", "Tempo de carga por volume",
-           "Tempo gasto enviando os itens ao banco, em lotes de 10 mil, numa única transação no PostgreSQL (escala logarítmica)",
+           "Tempo gasto enviando os itens ao banco, em lotes de 10 mil, com commit a cada lote nos dois bancos (escala logarítmica)",
            "tempo (s)", "grafico6_carga_tempo",
            lambda v: f"{v:.1f} s".replace(".", ",") if v >= 1 else f"{v * 1000:.0f} ms", escala=1e-3, log_y=True)
     barras("cpu_media_percent", "CPU durante a carga por volume",
@@ -642,7 +650,7 @@ def main():
         disponiveis = [pr for pr in VOLUMES if pr in vol]
         ref = a.ref if a.ref in vol else ("Grande" if "Grande" in vol else disponiveis[-1])
         print(f"Volume de referência dos gráficos 2 e 5: {ref}")
-        grafico_escala(vol, saida, estatistica="media")
+        grafico_escala(vol, saida)
         grafico_ganho(vol, ref, saida, estatistica="media")
         grafico_espaco(vol, ref, saida)
     if sel:
