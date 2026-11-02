@@ -24,7 +24,7 @@ Escopo do experimento:
 │   └── analises.ipynb      # implementação completa do experimento (consultas, índices e métodos)
 ├── analises.py            # a Seção de escalabilidade do notebook, sem Jupyter: gera os JSON dos resultados
 ├── graficos.py             # gera os gráficos do TCC a partir dos JSON
-├── resultados_final_v4/   # JSON e gráficos da rodada v4 (10 repetições)
+├── resultados/            # JSON e gráficos (10 repetições)
 ├── docker-compose.yml      # PostgreSQL 14.18 e MongoDB 8.0.29
 ├── requirements.txt        # dependências Python, com versões fixadas
 ├── .env                    # você deve criar
@@ -120,8 +120,8 @@ Os resultados do trabalho vêm do `analises.py`, que executa a Seção de escala
 
 ```bash
 sudo -v      # no mesmo terminal; necessário para limpar o cache do sistema operacional (ou use --sem-so)
-python analises.py --repeats 10 --repeats-carga 5 --saida resultados_final_v4
-python graficos.py --entrada resultados_final_v4
+python analises.py --repeats 10 --repeats-carga 5 --saida resultados
+python graficos.py --entrada resultados
 ```
 
 - Roda os experimentos de volume (5 mil, 100 mil e 1 milhão de itens), seletividade e lote. A rodada completa leva algumas horas.
