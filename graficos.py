@@ -262,15 +262,16 @@ def grafico_escala(vol, saida):
                 linhas_csv.append(("1_escala_volume_media", c, nome_serie(banco, tipo), VOLUMES[p], med, mn, mx))
                 linhas_csv.append(("1_escala_volume_Q1_Q3", c, nome_serie(banco, tipo), VOLUMES[p], q1, q3, None))
         ax.set_xticks(xs)
-        ax.set_xticklabels([NOME_VOLUME[p] for p in presets])
+        ax.set_xticklabels([NOME_VOLUME[p] for p in presets], fontsize=12, color=TINTA)
+        ax.tick_params(axis="y", labelsize=12)
         ax.xaxis.set_minor_locator(NullLocator())  # só os 3 volumes medidos, sem marcas intermediárias
         ax.set_xlim(min(xs) / 1.9, max(xs) * 1.9)
         ax.set_ylim(y_min / 1.3, y_max * 2.6)
-        ax.set_xlabel("itens no banco", fontsize=9, color=TINTA_2)
-        ax.set_ylabel("tempo (ms)", fontsize=9, color=TINTA_2)
+        ax.set_xlabel("itens no banco", fontsize=12, color=TINTA_2)
+        ax.set_ylabel("tempo (ms)", fontsize=12, color=TINTA_2)
         tipos = dict.fromkeys(tipo_do_rotulo(r) for r in rotulos)
         legenda_series = [Patch(label=nome_serie(b, tp), **estilo_caixa(b, tp)) for b, tp in tipos]
-        ax.legend(handles=legenda_series + itens_boxplot(), loc="upper left", frameon=False, fontsize=8.5,
+        ax.legend(handles=legenda_series + itens_boxplot(), loc="upper left", frameon=False, fontsize=11,
                   labelcolor=TINTA, ncol=2)
         fig.tight_layout(rect=(0, 0, 1, 0.93))
         salvar(fig, saida / f"grafico1_escala_{c}.png")
@@ -305,7 +306,7 @@ def grafico_ganho(vol, ref, saida, estatistica="mediana", sufixo=""):
                    hatch="////" if tipo == "forcado" else None)
             rotulo = (f"{r:.1f}".replace(".", ",") + "×") if r < 10 else f"{r:.0f}×"
             ax.text(x, r * (1.08 if r >= 1 else 0.93), rotulo, ha="center", va="bottom" if r >= 1 else "top",
-                    fontsize=8.5, color=TINTA)
+                    fontsize=12, color=TINTA)
             razoes.append(r)
             tem_forcado |= tipo == "forcado"
             linhas_csv.append(("2_ganho_indice", c, nome_serie(banco, tipo), ref, r, None, None))
@@ -314,15 +315,16 @@ def grafico_ganho(vol, ref, saida, estatistica="mediana", sufixo=""):
         ax.set_ylim(min(razoes + [1]) / 1.7, max(razoes + [1]) * 2.0)
     ticks = [t for t in (0.1, 0.25, 0.5, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000) if ax.get_ylim()[0] <= t <= ax.get_ylim()[1]]
     ax.set_yticks(ticks)
+    ax.tick_params(axis="y", labelsize=12)
     ax.set_yticklabels([(f"{int(t)}" if t >= 1 else fmt_num(t)) + "×" for t in ticks])
     ax.set_xticks(range(len(consultas)))
     ax.set_xticklabels([TITULO[c].split(" · ")[0] + "\n" + textwrap.fill(TITULO[c].split(" · ")[1], 15)
-                        for c in consultas], fontsize=8.5, color=TINTA)
-    ax.set_ylabel("ganho do índice (escala logarítmica)", fontsize=9, color=TINTA_2)
+                        for c in consultas], fontsize=12, color=TINTA)
+    ax.set_ylabel("ganho do índice (escala logarítmica)", fontsize=12, color=TINTA_2)
     legenda = itens_legenda(so_bancos=True)
     if tem_forcado:
         legenda.append(Patch(facecolor=SUPERFICIE, edgecolor=TINTA_2, hatch="////", label="índice forçado"))
-    ax.legend(handles=legenda, loc="upper left", frameon=False, fontsize=9, labelcolor=TINTA)
+    ax.legend(handles=legenda, loc="upper left", frameon=False, fontsize=12, labelcolor=TINTA)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     salvar(fig, saida / f"grafico2_ganho_indice{sufixo}.png")
 
@@ -372,15 +374,16 @@ def grafico_seletividade(sel, saida, estatistica="mediana", variacao=False):
                     ax.vlines(x, mn, mx, color=TINTA, lw=1.1, zorder=4)
                     ax.vlines(x, q1, q3, color=TINTA, lw=4, alpha=0.55, zorder=4)
                     topo = max(y, mx)
-                ax.text(x, topo, " " + fmt_tempo(y), ha="center", va="bottom", fontsize=7.5, color=TINTA, rotation=90)
+                ax.text(x, topo, " " + fmt_tempo(y), ha="center", va="bottom", fontsize=11, color=TINTA, rotation=90)
                 maximo = max(maximo, topo)
                 linhas_csv.append(("3_seletividade_media" if usar_media else "3_seletividade", c, nome_serie(banco, tipo), linhas[param], y, None, param))
         ax.set_ylim(0, maximo * 1.6 if maximo else 1)  # folga para a legenda não cobrir o rótulo da barra mais alta
         ax.set_xticks(range(len(params)))
         ax.set_xticklabels([f"{NOME_PARAM.get(p, p)}\n{fmt_linhas(linhas[p])} linhas" for p in params],
-                           fontsize=8.5, color=TINTA)
-        ax.set_ylabel("tempo (ms)", fontsize=8.5, color=TINTA_2)
-        ax.legend(handles=legenda_barras(bool(ignorados)), loc="upper left", frameon=False, fontsize=8, labelcolor=TINTA,
+                           fontsize=12, color=TINTA)
+        ax.tick_params(axis="y", labelsize=12)
+        ax.set_ylabel("tempo (ms)", fontsize=12, color=TINTA_2)
+        ax.legend(handles=legenda_barras(bool(ignorados)), loc="upper left", frameon=False, fontsize=11, labelcolor=TINTA,
                   ncol=2)
         fig.tight_layout(rect=(0, 0, 1, 0.93))
         salvar(fig, saida / f"grafico3_seletividade_{c}.png")
@@ -439,14 +442,15 @@ def grafico_lote(lote, saida, estatistica="mediana"):
             desce = k > 0 and n / tamanhos_lote[k - 1] < 3 and not desceu
             rotulos.append(("\n" if desce else "") + fmt_num(n))
             desceu = desce
-        ax.set_xticklabels(rotulos)
-        ax.set_xlabel("itens por lote", fontsize=9, color=TINTA_2)
+        ax.set_xticklabels(rotulos, fontsize=12, color=TINTA)
+        ax.tick_params(axis="y", labelsize=12)
+        ax.set_xlabel("itens por lote", fontsize=12, color=TINTA_2)
         if media and y_max:
             ax.set_ylim(y_min / 1.3, y_max * 1.5)
             ax.set_xlim(min(tamanhos_lote) / 1.8, max(tamanhos_lote) * 1.8)
-        ax.set_ylabel("ms por item", fontsize=9, color=TINTA_2)
+        ax.set_ylabel("ms por item", fontsize=12, color=TINTA_2)
         ax.legend(handles=itens_legenda(so_bancos=True) + (itens_variacao() if media else []), loc="upper right",
-                  frameon=False, fontsize=9, labelcolor=TINTA)
+                  frameon=False, fontsize=11, labelcolor=TINTA)
         fig.tight_layout(rect=(0, 0, 1, 0.93))
         salvar(fig, saida / f"grafico4_lote_{ARQUIVO_LOTE[chave]}.png")
 
@@ -467,14 +471,15 @@ def grafico_espaco(vol, ref, saida):
             x = i + (k - 0.5) * largura
             ax.bar(x, mb, width=largura * 0.92, color=COR[banco], edgecolor=SUPERFICIE, linewidth=1.5)
             ax.text(x, mb, (f"{mb:.1f}".replace(".", ",") if mb < 10 else f"{mb:.0f}") + " MB", ha="center",
-                    va="bottom", fontsize=8.5, color=TINTA)
+                    va="bottom", fontsize=12, color=TINTA)
             maximo = max(maximo, mb)
             linhas_csv.append(("5_espaco_indice", c, banco, ref, mb, None, None))
+    ax.tick_params(axis="y", labelsize=12)
     ax.set_ylim(0, maximo * 1.15 if maximo else 1)
     ax.set_xticks(range(len(LEITURAS)))
-    ax.set_xticklabels([TITULO[c].replace(" · ", "\n") for c in LEITURAS], fontsize=9, color=TINTA)
-    ax.set_ylabel("espaço do índice (MB)", fontsize=9, color=TINTA_2)
-    ax.legend(handles=itens_legenda(so_bancos=True), loc="upper left", frameon=False, fontsize=9, labelcolor=TINTA)
+    ax.set_xticklabels([TITULO[c].replace(" · ", "\n") for c in LEITURAS], fontsize=12, color=TINTA)
+    ax.set_ylabel("espaço do índice (MB)", fontsize=12, color=TINTA_2)
+    ax.legend(handles=itens_legenda(so_bancos=True), loc="upper left", frameon=False, fontsize=12, labelcolor=TINTA)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     salvar(fig, saida / "grafico5_espaco_indice.png")
 
@@ -494,25 +499,26 @@ def _barras_carga(carga, series, titulo, subtitulo, nota, ylabel, arquivo, forma
             x = i + (k - (len(series) - 1) / 2) * largura
             if v is None:
                 ax.text(x, 0 if not log_y else ax.get_ylim()[0], "sem\namostra", ha="center", va="bottom",
-                        fontsize=7.5, color=TINTA_2)
+                        fontsize=11, color=TINTA_2)
                 continue
             ax.bar(x, v, width=largura * 0.92, **estilo_barra(banco, tipo))
             m = maximo(carga[p][banco]) if maximo else None
             if m is not None and m > v:
                 ax.errorbar([x], [v], yerr=[[0], [m - v]], fmt="none", ecolor=TINTA, elinewidth=1, capsize=3)
             ax.text(x, max(v, m or v), " " + formatar(v) + ("" if m is None else f"\nmáx {formatar(m)}"),
-                    ha="center", va="bottom", fontsize=8, color=TINTA)
+                    ha="center", va="bottom", fontsize=11, color=TINTA)
             topo = max(topo, v, m or 0)
             linhas_csv.append((arquivo, rotulo, banco, VOLUMES[p], v, None, m))
     ax.set_xticks(range(len(presets)))
-    ax.set_xticklabels([f"{NOME_VOLUME[p]}\nde itens" for p in presets])
-    ax.set_ylabel(ylabel, fontsize=9, color=TINTA_2)
+    ax.set_xticklabels([f"{NOME_VOLUME[p]}\nde itens" for p in presets], fontsize=12, color=TINTA)
+    ax.tick_params(axis="y", labelsize=12)
+    ax.set_ylabel(ylabel, fontsize=12, color=TINTA_2)
     if log_y:
         ax.set_ylim(top=topo * 3)
     else:
         ax.set_ylim(0, topo * 1.25 if topo else 1)
     ax.legend(handles=[Patch(label=r, **estilo_barra(b, tp)) for r, b, tp, *_ in series], loc="upper left",
-              frameon=False, fontsize=9, labelcolor=TINTA)
+              frameon=False, fontsize=12, labelcolor=TINTA)
     fig.tight_layout(rect=(0, 0, 1, 0.93))
     salvar(fig, saida_global / f"{arquivo}.png")
 
@@ -592,21 +598,22 @@ def grafico_carga_rodadas(rodadas, saida):
                 ax.bar(x, media, width=largura * 0.92, **estilo_barra(banco, "com"))
                 ax.errorbar([x], [media], yerr=[[media - mn], [mx - media]], fmt="none", ecolor=TINTA, elinewidth=1.2,
                             capsize=4, zorder=4)
-                ax.text(x, mx, formatar(media) + "\n(média)", ha="center", va="bottom", fontsize=8.5, color=TINTA,
+                ax.text(x, mx, formatar(media) + "\n(média)", ha="center", va="bottom", fontsize=12, color=TINTA,
                         linespacing=1.15)
                 topo = max(topo, mx)
                 piso = min(piso, mn)
                 linhas_csv.append((arquivo, metrica, banco, VOLUMES[p], media, mn, mx))
         ax.set_xticks(range(len(presets)))
-        ax.set_xticklabels([f"{NOME_VOLUME[p]}\nde itens" for p in presets])
-        ax.set_ylabel(ylabel, fontsize=9, color=TINTA_2)
+        ax.set_xticklabels([f"{NOME_VOLUME[p]}\nde itens" for p in presets], fontsize=12, color=TINTA)
+        ax.tick_params(axis="y", labelsize=12)
+        ax.set_ylabel(ylabel, fontsize=12, color=TINTA_2)
         if log_y:
             ax.set_ylim(piso / 1.8, topo * 3)
         else:
             ax.set_ylim(0, topo * 1.4 if topo else 1)
         ax.legend(handles=[Patch(label=b, **estilo_barra(b, "com")) for b in bancos]
                   + [Line2D([], [], color=TINTA, lw=1.2, label="fio: mínimo a máximo entre as rodadas")],
-                  loc="upper left", frameon=False, fontsize=9, labelcolor=TINTA)
+                  loc="upper left", frameon=False, fontsize=12, labelcolor=TINTA)
         fig.tight_layout(rect=(0, 0, 1, 0.93))
         salvar(fig, saida / f"{arquivo}.png")
 
